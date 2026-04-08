@@ -1,0 +1,6 @@
+apiVersion: v2
+name: kai-resource-isolator
+description: DaemonSet to sync HAMi libvgpu to GPU nodes and mutating webhook to inject into GPU-sharing pods.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

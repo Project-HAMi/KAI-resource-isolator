@@ -1,0 +1,16 @@
+Kai resource isolator is installed in namespace {{ include "kai-resource-isolator.namespace" . }}.
+
+1) Build and push images (build context = kai-resource-isolator directory):
+
+   docker build -f kai-resource-isolator/docker/Dockerfile.libsync -t <registry>/kai-resource-isolator-lib:<tag> kai-resource-isolator
+   docker build -f kai-resource-isolator/docker/Dockerfile.webhook -t <registry>/kai-resource-isolator-webhook:<tag> kai-resource-isolator
+
+2) Ensure GPU nodes receive libvgpu:
+
+   kubectl -n {{ include "kai-resource-isolator.namespace" . }} get daemonset {{ include "kai-resource-isolator.librarySync.fullname" . }}
+
+3) Webhook injects {{ .Values.paths.containerVgpuMount }} (hostPath) and /etc/ld.so.preload for pods that request:
+   {{ .Values.webhook.gpuShareResources }}
+
+   Opt-out a pod: annotation kai-resource-isolator.io/inject: "false"
+   Opt-out a namespace: label kai-resource-isolator.io/webhook=ignore

@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kai-resource-isolator.webhook.fullname" . }}
+  namespace: {{ include "kai-resource-isolator.namespace" . }}
+  labels:
+    app.kubernetes.io/component: kai-webhook
+    {{- include "kai-resource-isolator.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    app.kubernetes.io/component: kai-webhook
+    {{- include "kai-resource-isolator.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: https
+      port: {{ .Values.service.port }}
+      targetPort: https
+      protocol: TCP

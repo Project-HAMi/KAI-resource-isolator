@@ -1,0 +1,17 @@
+# Build context: kai-resource-isolator repo root (contains go.mod, cmd/).
+#   docker build -f docker/Dockerfile.webhook -t <registry>/kai-resource-isolator-webhook:<tag> .
+# From a monorepo parent directory:
+#   docker build -f kai-resource-isolator/docker/Dockerfile.webhook -t <registry>/kai-resource-isolator-webhook:<tag> kai-resource-isolator
+FROM golang:1.25-bookworm AS build
+WORKDIR /src
+COPY . .
+RUN go env -w GO111MODULE=on
+ENV GOPROXY=https://goproxy.cn,direct
+RUN go mod download
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /webhook ./cmd/webhook
+
+FROM ubuntu:24.04
+RUN groupadd --system nonroot && useradd --system --gid nonroot --no-create-home nonroot
+COPY --from=build /webhook /webhook
+USER nonroot:nonroot
+ENTRYPOINT ["/webhook"]

@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kai-resource-isolator.webhook.fullname" . }}
+  namespace: {{ include "kai-resource-isolator.namespace" . }}
+  labels:
+    app.kubernetes.io/component: kai-webhook
+    {{- include "kai-resource-isolator.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.webhook.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: kai-webhook
+      {{- include "kai-resource-isolator.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: kai-webhook
+        kai-resource-isolator.io/webhook: ignore
+        {{- include "kai-resource-isolator.selectorLabels" . | nindent 8 }}
+        {{- with .Values.webhook.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.webhook.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- include "kai-resource-isolator.pullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "kai-resource-isolator.webhook.fullname" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        fsGroup: 65532
+      containers:
+        - name: webhook
+          image: {{ include "kai-resource-isolator.webhook.image" . }}
+          imagePullPolicy: {{ .Values.webhook.image.pullPolicy }}
+          args:
+            - --listen=:8443
+            - --tls-cert-file=/etc/tls/tls.crt
+            - --tls-private-key-file=/etc/tls/tls.key
+          env:
+            - name: CONTAINER_VGPU_MOUNT
+              value: {{ .Values.paths.containerVgpuMount | quote }}
+            - name: HOST_VGPU_DIR
+              value: {{ .Values.paths.containerVgpuMount | quote }}
+            - name: GPU_SHARE_RESOURCES
+              value: {{ .Values.webhook.gpuShareResources | quote }}
+          ports:
+            - name: https
+              containerPort: 8443
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          volumeMounts:
+            - name: tls
+              mountPath: /etc/tls
+              readOnly: true
+          resources:
+            {{- toYaml .Values.webhook.resources | nindent 12 }}
+      volumes:
+        - name: tls
+          secret:
+            secretName: {{ include "kai-resource-isolator.webhook.tlsSecret" . }}
+      {{- with .Values.webhook.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.webhook.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

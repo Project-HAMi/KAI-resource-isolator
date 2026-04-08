@@ -1,0 +1,81 @@
+## Default values mirror HAMi device-plugin hook layout (HOOK_PATH=/usr/local → /usr/local/vgpu on host).
+nameOverride: ""
+fullnameOverride: ""
+namespaceOverride: ""
+
+global:
+  imageRegistry: ""
+  imagePullSecrets: []
+
+paths:
+  ## Host directory base; the chart installs libraries under {hostInstallBase}/vgpu/
+  hostInstallBase: /usr/local
+  ## Path inside the container and on the host (same absolute path is required for ld.so.preload and device-plugin compatibility)
+  containerVgpuMount: /usr/local/vgpu
+
+librarySync:
+  image:
+    registry: docker.io
+    repository: library/kai-resource-isolator-lib
+    tag: latest
+    pullPolicy: IfNotPresent
+  ## Node labels for GPU nodes (empty = all nodes)
+  nodeSelector: {}
+  tolerations:
+    - operator: Exists
+      effect: NoSchedule
+  resources: {}
+  priorityClassName: system-node-critical
+  podLabels: {}
+  podAnnotations: {}
+
+webhook:
+  replicaCount: 1
+  image:
+    registry: docker.io
+    repository: library/kai-resource-isolator-webhook
+    tag: latest
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+  nodeSelector: {}
+  tolerations: []
+  podLabels: {}
+  podAnnotations: {}
+  ## Comma-separated extended resources that trigger injection (HAMi vGPU sharing)
+  gpuShareResources: "nvidia.com/gpu,nvidia.com/gpumem,nvidia.com/gpucores"
+  failurePolicy: Ignore
+
+tls:
+  ## When cert-manager is enabled, set patch.enabled to false.
+  certManager:
+    enabled: false
+    issuerRef:
+      kind: ClusterIssuer
+      name: selfsigned
+  patch:
+    enabled: true
+    image:
+      registry: docker.io
+      repository: jettech/kube-webhook-certgen
+      tag: v1.5.2
+      pullPolicy: IfNotPresent
+    imageNew:
+      registry: docker.io
+      repository: liangjw/kube-webhook-certgen
+      tag: v1.1.1
+      pullPolicy: IfNotPresent
+    runAsUser: 2000
+    nodeSelector: {}
+    tolerations: []
+
+service:
+  type: ClusterIP
+  port: 443
+
+rbac:
+  create: true

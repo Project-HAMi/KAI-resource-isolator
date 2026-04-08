@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "kai-resource-isolator.librarySync.fullname" . }}
+  namespace: {{ include "kai-resource-isolator.namespace" . }}
+  labels:
+    app.kubernetes.io/component: kai-libsync
+    {{- include "kai-resource-isolator.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: kai-libsync
+      {{- include "kai-resource-isolator.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: kai-libsync
+        kai-resource-isolator.io/webhook: ignore
+        {{- include "kai-resource-isolator.selectorLabels" . | nindent 8 }}
+        {{- with .Values.librarySync.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.librarySync.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- include "kai-resource-isolator.pullSecrets" . | nindent 6 }}
+      priorityClassName: {{ .Values.librarySync.priorityClassName | quote }}
+      hostNetwork: false
+      containers:
+        - name: libsync
+          image: {{ include "kai-resource-isolator.libsync.image" . }}
+          imagePullPolicy: {{ .Values.librarySync.image.pullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              DST="/host-root{{ .Values.paths.containerVgpuMount }}"
+              mkdir -p "${DST}"
+              cp -f /artifacts/libvgpu.so "${DST}/libvgpu.so"
+              cp -f /config/ld.so.preload "${DST}/ld.so.preload"
+              chmod 0644 "${DST}/libvgpu.so" "${DST}/ld.so.preload"
+              echo "HAMi lib sync installed under ${DST}"
+              exec sleep infinity
+          securityContext:
+            privileged: true
+            runAsUser: 0
+          volumeMounts:
+            - name: host-root
+              mountPath: /host-root
+              mountPropagation: Bidirectional
+            - name: ldpreload
+              mountPath: /config
+              readOnly: true
+          {{- with .Values.librarySync.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: host-root
+          hostPath:
+            path: /
+            type: Directory
+        - name: ldpreload
+          configMap:
+            name: {{ include "kai-resource-isolator.fullname" . }}-ldpreload
+            items:
+              - key: ld.so.preload
+                path: ld.so.preload
+      {{- with .Values.librarySync.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.librarySync.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

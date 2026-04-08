@@ -1,0 +1,16 @@
+{{- if .Values.tls.certManager.enabled }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "kai-resource-isolator.fullname" . }}-serving-cert
+  namespace: {{ include "kai-resource-isolator.namespace" . }}
+  labels:
+    {{- include "kai-resource-isolator.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "kai-resource-isolator.webhook.tlsSecret" . }}
+  dnsNames:
+    - {{ include "kai-resource-isolator.webhook.fullname" . }}.{{ include "kai-resource-isolator.namespace" . }}.svc
+    - {{ include "kai-resource-isolator.webhook.fullname" . }}.{{ include "kai-resource-isolator.namespace" . }}.svc.cluster.local
+  issuerRef:
+    {{- toYaml .Values.tls.certManager.issuerRef | nindent 4 }}
+{{- end }}

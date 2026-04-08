@@ -1,0 +1,6 @@
+# Image that carries libvgpu.so onto the node via the DaemonSet.
+# Build context: kai-resource-isolator repo root (contains libvgpu.so).
+#   docker build -f docker/Dockerfile.libsync -t <registry>/kai-resource-isolator-lib:<tag> .
+FROM alpine:3.19
+RUN apk add --no-cache ca-certificates && rm -rf /var/cache/apk/*
+COPY libvgpu.so /artifacts/libvgpu.so
