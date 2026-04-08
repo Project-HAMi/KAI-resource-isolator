@@ -3,7 +3,7 @@ name: Build and Push Kai Image
 on:
   push:
     branches:
-      - master
+      - main
 
 concurrency:
   group: kai-image-${{ github.ref }}
