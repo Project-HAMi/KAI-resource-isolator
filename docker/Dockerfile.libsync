@@ -1,6 +1,13 @@
 # Image that carries libvgpu.so onto the node via the DaemonSet.
-# Build context: kai-resource-isolator repo root (contains libvgpu.so).
+# Build context: kai-resource-isolator repo root (contains libvgpu submodule).
 #   docker build -f docker/Dockerfile.libsync -t <registry>/kai-resource-isolator-lib:<tag> .
+FROM nvidia/cuda:12.2.0-devel-ubuntu20.04 AS build
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends cmake make gcc g++ && rm -rf /var/lib/apt/lists/*
+WORKDIR /build/libvgpu
+COPY libvgpu/ ./
+RUN bash ./build.sh && test -f /build/libvgpu/build/libvgpu.so
+
 FROM alpine:3.19
 RUN apk add --no-cache ca-certificates && rm -rf /var/cache/apk/*
-COPY libvgpu.so /artifacts/libvgpu.so
+COPY --from=build /build/libvgpu/build/libvgpu.so /artifacts/libvgpu.so

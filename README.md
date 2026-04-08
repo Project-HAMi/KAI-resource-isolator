@@ -7,7 +7,7 @@ Syncs **libvgpu** onto GPU nodes via a **DaemonSet** and uses a **mutating admis
 - **Binary build**: Go 1.25 or newer (match the version in `go.mod`).
 - **Image build**: Docker or a compatible builder; the webhook image build must reach a Go module proxy (override via `GOPROXY` in `docker/Dockerfile.webhook` if needed).
 - **Deployment**: A Kubernetes cluster and `kubectl`; **Helm 3** is recommended.
-- **Library image**: `docker/Dockerfile.libsync` expects a real **`libvgpu.so`** (matching your HAMi version) at the **repository root** before you build.
+- **Library source**: This repo uses `HAMi-core` as a git submodule at `libvgpu/` and builds `libvgpu.so` from source during `docker/Dockerfile.libsync` build.
 
 ## Build locally (without Docker)
 
@@ -23,7 +23,13 @@ To sanity-check compilation, you can also run `go test ./...` when tests exist.
 
 ## Build container images
 
-Dockerfiles live under **`docker/`**. The build context must be the **`kai-resource-isolator` repository root** (the directory that contains `go.mod`, `libvgpu.so`, and `cmd/`).
+Dockerfiles live under **`docker/`**. The build context must be the **`kai-resource-isolator` repository root** (the directory that contains `go.mod`, `libvgpu/`, and `cmd/`).
+
+Before building images, make sure submodules are initialized:
+
+```bash
+git submodule update --init --recursive
+```
 
 ### From this repository root
 
