@@ -1,0 +1,10 @@
+{{- if and .Values.tls.certManager.enabled .Values.tls.certManager.createSelfSignedClusterIssuer (eq (default "" .Values.tls.certManager.issuerRef.kind) "ClusterIssuer") (eq (default "" .Values.tls.certManager.issuerRef.name) "selfsigned") }}
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned
+  labels:
+    {{- include "kai-resource-isolator.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+{{- end }}
