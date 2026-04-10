@@ -3,7 +3,7 @@ name: Build and Push Kai Image
 on:
   push:
     branches:
-      - master
+      - main
 
 concurrency:
   group: kai-image-${{ github.ref }}
@@ -26,8 +26,8 @@ jobs:
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          username: ${{ secrets.DOCKERHUB_TOKEN }}
+          password: ${{ secrets.DOCKERHUB_PASSWD }}
 
       - name: Build and push webhook image
         uses: docker/build-push-action@v6
