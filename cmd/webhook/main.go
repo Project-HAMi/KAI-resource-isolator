@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -24,6 +25,8 @@ const (
 	defaultListen       = ":8443"
 	volumeName          = "kai-resource-isolator-vgpu"
 	injectAnnotationKey = "kai-resource-isolator.io/inject"
+	gpuFractionKey      = "gpu-fraction"
+	gpuMemoryKey        = "gpu-memory"
 )
 
 func main() {
@@ -31,7 +34,6 @@ func main() {
 	keyFile := flag.String("tls-private-key-file", "/etc/tls/tls.key", "TLS private key")
 	listen := flag.String("listen", defaultListen, "Listen address")
 	containerMount := flag.String("container-vgpu-mount", getenv("CONTAINER_VGPU_MOUNT", "/usr/local/vgpu"), "Mount path inside the pod for the node vgpu directory (must match DaemonSet install path and ld.so.preload)")
-	resources := flag.String("gpu-resources", getenv("GPU_SHARE_RESOURCES", "nvidia.com/gpu,nvidia.com/gpumem,nvidia.com/gpucores"), "Comma-separated resource names that identify GPU-sharing workloads")
 	flag.Parse()
 
 	mux := http.NewServeMux()
@@ -40,7 +42,7 @@ func main() {
 		_, _ = w.Write([]byte("ok"))
 	})
 	mux.HandleFunc("/mutate", func(w http.ResponseWriter, r *http.Request) {
-		handleMutate(w, r, strings.Split(*resources, ","), *containerMount)
+		handleMutate(w, r, *containerMount)
 	})
 
 	srv := &http.Server{
@@ -48,6 +50,7 @@ func main() {
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
+	log.Printf("webhook starting listen=%s containerVgpuMount=%s annotationKeys=%s|%s", *listen, *containerMount, gpuFractionKey, gpuMemoryKey)
 
 	if err := srv.ListenAndServeTLS(*certFile, *keyFile); err != nil && err != http.ErrServerClosed {
 		fmt.Fprintf(os.Stderr, "server error: %v\n", err)
@@ -62,22 +65,26 @@ func getenv(key, def string) string {
 	return def
 }
 
-func handleMutate(w http.ResponseWriter, r *http.Request, resourceKeys []string, containerMount string) {
+func handleMutate(w http.ResponseWriter, r *http.Request, containerMount string) {
 	if r.Method != http.MethodPost {
+		log.Printf("mutate reject: method=%s", r.Method)
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
+		log.Printf("mutate read body failed: %v", err)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	var review admissionv1.AdmissionReview
 	if err := json.Unmarshal(body, &review); err != nil {
+		log.Printf("mutate decode admission review failed: %v", err)
 		http.Error(w, fmt.Sprintf("decode: %v", err), http.StatusBadRequest)
 		return
 	}
 	if review.Request == nil {
+		log.Printf("mutate reject: missing request")
 		http.Error(w, "missing request", http.StatusBadRequest)
 		return
 	}
@@ -89,6 +96,7 @@ func handleMutate(w http.ResponseWriter, r *http.Request, resourceKeys []string,
 
 	pod := corev1.Pod{}
 	if err := json.Unmarshal(review.Request.Object.Raw, &pod); err != nil {
+		log.Printf("mutate uid=%s unmarshal pod failed: %v", review.Request.UID, err)
 		resp.Result = &metav1.Status{
 			Message: fmt.Sprintf("unmarshal pod: %v", err),
 			Code:    http.StatusBadRequest,
@@ -99,21 +107,25 @@ func handleMutate(w http.ResponseWriter, r *http.Request, resourceKeys []string,
 	}
 
 	if pod.Annotations != nil && strings.EqualFold(pod.Annotations[injectAnnotationKey], "false") {
+		log.Printf("mutate uid=%s ns=%s pod=%s skipped: annotation %s=false", review.Request.UID, pod.Namespace, pod.Name, injectAnnotationKey)
 		writeAdmission(w, &review, resp)
 		return
 	}
 
-	patch, err := buildJSONPatch(&pod, resourceKeys, containerMount)
+	patch, err := buildJSONPatch(&pod, containerMount)
 	if err != nil {
+		log.Printf("mutate uid=%s ns=%s pod=%s build patch failed: %v", review.Request.UID, pod.Namespace, pod.Name, err)
 		resp.Result = &metav1.Status{Message: err.Error(), Code: http.StatusInternalServerError}
 		resp.Allowed = false
 		writeAdmission(w, &review, resp)
 		return
 	}
 	if len(patch) == 0 {
+		log.Printf("mutate uid=%s ns=%s pod=%s skipped: missing annotations %q or %q", review.Request.UID, pod.Namespace, pod.Name, gpuFractionKey, gpuMemoryKey)
 		writeAdmission(w, &review, resp)
 		return
 	}
+	log.Printf("mutate uid=%s ns=%s pod=%s injected: patchBytes=%d", review.Request.UID, pod.Namespace, pod.Name, len(patch))
 	pt := admissionv1.PatchTypeJSONPatch
 	resp.Patch = patch
 	resp.PatchType = &pt
@@ -136,9 +148,8 @@ func writeAdmission(w http.ResponseWriter, review *admissionv1.AdmissionReview, 
 	}
 }
 
-func buildJSONPatch(pod *corev1.Pod, resourceKeys []string, containerMount string) ([]byte, error) {
-	keys := normalizeKeys(resourceKeys)
-	if !podNeedsInjection(pod, keys) {
+func buildJSONPatch(pod *corev1.Pod, containerMount string) ([]byte, error) {
+	if !podNeedsInjection(pod) {
 		return nil, nil
 	}
 
@@ -179,9 +190,6 @@ func buildJSONPatch(pod *corev1.Pod, resourceKeys []string, containerMount strin
 	}
 
 	for i := range pod.Spec.InitContainers {
-		if !containerUsesGPUShare(&pod.Spec.InitContainers[i], keys) {
-			continue
-		}
 		c := &pod.Spec.InitContainers[i]
 		if !hasMount(c, volumeName, containerMount, "") {
 			ops = append(ops, map[string]interface{}{
@@ -199,9 +207,6 @@ func buildJSONPatch(pod *corev1.Pod, resourceKeys []string, containerMount strin
 		}
 	}
 	for i := range pod.Spec.Containers {
-		if !containerUsesGPUShare(&pod.Spec.Containers[i], keys) {
-			continue
-		}
 		c := &pod.Spec.Containers[i]
 		if !hasMount(c, volumeName, containerMount, "") {
 			ops = append(ops, map[string]interface{}{
@@ -225,42 +230,13 @@ func buildJSONPatch(pod *corev1.Pod, resourceKeys []string, containerMount strin
 	return json.Marshal(ops)
 }
 
-func normalizeKeys(keys []string) []string {
-	var out []string
-	for _, k := range keys {
-		k = strings.TrimSpace(k)
-		if k != "" {
-			out = append(out, k)
-		}
+func podNeedsInjection(pod *corev1.Pod) bool {
+	if pod.Annotations == nil {
+		return false
 	}
-	return out
-}
-
-func podNeedsInjection(pod *corev1.Pod, keys []string) bool {
-	for i := range pod.Spec.InitContainers {
-		if containerUsesGPUShare(&pod.Spec.InitContainers[i], keys) {
-			return true
-		}
-	}
-	for i := range pod.Spec.Containers {
-		if containerUsesGPUShare(&pod.Spec.Containers[i], keys) {
-			return true
-		}
-	}
-	return false
-}
-
-func containerUsesGPUShare(c *corev1.Container, keys []string) bool {
-	for _, k := range keys {
-		rn := corev1.ResourceName(k)
-		if q, ok := c.Resources.Requests[rn]; ok && !q.IsZero() {
-			return true
-		}
-		if q, ok := c.Resources.Limits[rn]; ok && !q.IsZero() {
-			return true
-		}
-	}
-	return false
+	_, hasFraction := pod.Annotations[gpuFractionKey]
+	_, hasMemory := pod.Annotations[gpuMemoryKey]
+	return hasFraction || hasMemory
 }
 
 func hasMount(c *corev1.Container, volName, mountPath, subPath string) bool {
