@@ -1,10 +1,25 @@
 # kai-resource-isolator
 
-Syncs **libvgpu** onto GPU nodes via a **DaemonSet** and uses a **mutating admission webhook** to inject mounts and `ld.so.preload` into Pods that request HAMi vGPU-related resources. This aligns with the typical HAMi device-plugin layout using **hostPath `/usr/local/vgpu`**.
+`kai-resource-isolator` works alongside [KAI-Scheduler](https://github.com/NVIDIA/KAI-Scheduler) to enforce **GPU memory isolation** for GPU-sharing workloads. It leverages [HAMi-core](https://github.com/Project-HAMi/HAMi-core) to intercept CUDA calls inside the container and apply a hard memory limit, so each container only sees the GPU memory it was allocated.
 
-## Quick Start (OCI)
+For architecture details see the [Design](#design) section.
 
-No need to clone the repo — install directly from the OCI registry:
+## Quick Start
+
+### 1. Deploy KAI-Scheduler with GPU sharing enabled
+
+Follow the [KAI-Scheduler deployment guide](https://github.com/NVIDIA/KAI-Scheduler/blob/main/docs/gpu-sharing/gpu-sharing.md) and enable `gpushare` and `hamicore`:
+
+```bash
+helm install kai-scheduler oci://ghcr.io/nvidia/kai-scheduler \
+  --set scheduler.gpuSharing.enabled=true \
+  --set scheduler.gpuSharing.hamicoreEnabled=true \
+  --namespace kai-scheduler --create-namespace
+```
+
+### 2. Deploy kai-resource-isolator
+
+Install directly from the OCI registry:
 
 ```bash
 helm install kai-resource-isolator oci://docker.io/projecthami/kai-resource-isolator \
@@ -14,7 +29,7 @@ helm install kai-resource-isolator oci://docker.io/projecthami/kai-resource-isol
 
 Chart versions carry a `-chart` suffix (e.g. `1.0.0-chart`). Available versions are listed at [projecthami/kai-resource-isolator](https://hub.docker.com/r/projecthami/kai-resource-isolator/tags) on Docker Hub.
 
-## Build container image
+## Build
 
 The build context must be the **`kai-resource-isolator` repository root** (the directory that contains `go.mod`, `libvgpu/`, and `cmd/`).
 
@@ -23,11 +38,11 @@ git submodule update --init --recursive
 docker build -f docker/Dockerfile -t <registry>/<project>/kai-resource-isolator:<tag> .
 ```
 
-### Customization
+## Customization
 
 Tune `paths.containerVgpuMount` and `webhook.gpuShareResources` for your environment and HAMi extended resource names.
 
-#### TLS
+### TLS
 
 Because this chart installs a `MutatingWebhookConfiguration`, the webhook server requires a valid TLS certificate. The chart ships with two modes:
 
@@ -48,18 +63,32 @@ helm install kai-resource-isolator oci://docker.io/projecthami/kai-resource-isol
 
 After install, verify with `kubectl get daemonset`, `kubectl get mutatingwebhookconfiguration`, etc. Disable injection per Pod with annotation `kai-resource-isolator.io/inject: "false"`, or skip the webhook for a namespace with label `kai-resource-isolator.io/webhook=ignore`.
 
-## Components (summary)
+## Design
+
+GPU sharing in KAI-Scheduler allows a Pod to request a fraction of a GPU (e.g. `0.5`) or a specific amount of GPU memory. Without memory isolation, however, containers could still access the full GPU memory at the CUDA level.
+
+`kai-resource-isolator` closes this gap by combining two components:
 
 | Component | Role |
 |---|---|
-| DaemonSet (libsync) | Copies `libvgpu.so` to the configured path on each node |
-| Mutating webhook | Injects volumes, `ld.so.preload` for Pods requesting GPU-sharing resources |
+| DaemonSet (libsync) | Copies `libvgpu.so` (HAMi-core) to `/usr/local/vgpu` on every GPU node |
+| Mutating webhook | Injects the `libvgpu` hostPath volume and `ld.so.preload` into Pods that request GPU-sharing resources |
+
+The full flow when a GPU-sharing Pod is submitted:
+
+1. **KAI-Scheduler** selects a node and injects the `CUDA_DEVICE_MEMORY_LIMIT` environment variable into the Pod, set to the allocated memory amount.
+2. **kai-resource-isolator webhook** injects a `hostPath` volume mount (`/usr/local/vgpu`) and patches `/etc/ld.so.preload` so that `libvgpu.so` is loaded by the container at runtime.
+3. The container starts; `libvgpu.so` intercepts CUDA memory allocation calls and enforces the limit set by `CUDA_DEVICE_MEMORY_LIMIT`.
+
+![Architecture](https://github.com/user-attachments/assets/ac7566fe-f79c-45fc-b3a1-24bc18ea6bc9)
+
+> This design was collaboratively agreed upon in [KAI-Scheduler#60](https://github.com/kai-scheduler/KAI-Scheduler/pull/60). The key insight is that `kai-resource-isolator` is deployed independently from KAI-Scheduler, allowing users to opt-in to memory isolation without any changes to the scheduler itself.
 
 ## Release process
 
 On Git tag push (`v*`), the CI workflow:
 
-1. Builds the Docker image (`linux/amd64` + `linux/arm64`) and pushes to Docker Hub as `projecthami/kai-resource-isolator:v<x.y.z>` and `:latest`
-2. Packages the Helm chart (version `<x.y.z>-chart`) and pushes it as an OCI artifact to `oci://docker.io/projecthami/kai-resource-isolator`
+1. Packages the Helm chart (version `<x.y.z>-chart`) and pushes it as an OCI artifact to `oci://docker.io/projecthami/kai-resource-isolator`
+2. Builds the Docker image (`linux/amd64` + `linux/arm64`) and pushes to Docker Hub as `projecthami/kai-resource-isolator:v<x.y.z>` and `:latest`
 
 For post-install hints, see the Helm-rendered **NOTES** printed after `helm install`.
