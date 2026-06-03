@@ -14,21 +14,6 @@ helm install kai-resource-isolator oci://docker.io/projecthami/kai-resource-isol
 
 Chart versions carry a `-chart` suffix (e.g. `1.0.0-chart`). Available versions are listed at [projecthami/kai-resource-isolator](https://hub.docker.com/r/projecthami/kai-resource-isolator/tags) on Docker Hub.
 
-## Prerequisites (for building from source)
-
-- **Binary build**: Go 1.25 or newer (match the version in `go.mod`).
-- **Image build**: Docker or a compatible builder; the webhook image build must reach a Go module proxy (override via `GOPROXY` in `docker/Dockerfile` if needed).
-- **Deployment**: A Kubernetes cluster and `kubectl`; **Helm 3.8+** is recommended (for OCI support).
-- **Library source**: This repo uses `HAMi-core` as a git submodule at `libvgpu/` and builds `libvgpu.so` from source during `docker/Dockerfile` build.
-
-## Build from source
-
-Build the webhook binary locally:
-
-```bash
-CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bin/webhook ./cmd/webhook
-```
-
 ## Build container image
 
 The build context must be the **`kai-resource-isolator` repository root** (the directory that contains `go.mod`, `libvgpu/`, and `cmd/`).
@@ -38,27 +23,28 @@ git submodule update --init --recursive
 docker build -f docker/Dockerfile -t <registry>/<project>/kai-resource-isolator:<tag> .
 ```
 
-## Deploy with Helm (from local chart)
-
-Chart path: `chart/kai-resource-isolator`.
-
-```bash
-helm upgrade --install kai-resource-isolator ./chart/kai-resource-isolator \
-  --namespace kai-resource-isolator --create-namespace \
-  --set image.repository=<registry>/<project>/kai-resource-isolator \
-  --set image.tag=<tag>
-```
-
-### TLS configuration
-
-| Mode | Setting | Requires |
-|---|---|---|
-| Helm hook (default) | `tls.patch.enabled: true` | Nothing — Jobs auto-create and patch TLS |
-| cert-manager | `tls.certManager.enabled: true` + `tls.patch.enabled: false` | [cert-manager](https://cert-manager.io/) installed |
-
 ### Customization
 
 Tune `paths.containerVgpuMount` and `webhook.gpuShareResources` for your environment and HAMi extended resource names.
+
+#### TLS
+
+Because this chart installs a `MutatingWebhookConfiguration`, the webhook server requires a valid TLS certificate. The chart ships with two modes:
+
+| Mode | Values | Requires |
+|---|---|---|
+| Helm hook (default) | `tls.patch.enabled: true` | Nothing — a Job auto-generates a self-signed cert and patches the webhook CA bundle |
+| cert-manager | `tls.certManager.enabled: true` + `tls.patch.enabled: false` | [cert-manager](https://cert-manager.io/) installed in the cluster |
+
+If your cluster already has cert-manager, switch to the cert-manager mode:
+
+```bash
+helm install kai-resource-isolator oci://docker.io/projecthami/kai-resource-isolator \
+  --namespace kai-resource-isolator --create-namespace \
+  --version <version>-chart \
+  --set tls.certManager.enabled=true \
+  --set tls.patch.enabled=false
+```
 
 After install, verify with `kubectl get daemonset`, `kubectl get mutatingwebhookconfiguration`, etc. Disable injection per Pod with annotation `kai-resource-isolator.io/inject: "false"`, or skip the webhook for a namespace with label `kai-resource-isolator.io/webhook=ignore`.
 
