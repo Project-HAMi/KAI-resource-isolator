@@ -32,16 +32,15 @@ jobs:
       - name: Compute image metadata
         id: meta
         run: |
+          REPO="docker.io/projecthami/kai-resource-isolator"
           REF="${{ github.ref }}"
           if [[ "${REF}" == refs/tags/v* ]]; then
             VERSION="${REF#refs/tags/v}"
-            echo "webhook=docker.io/projecthami/kai-resource-isolator-webhook:${VERSION},docker.io/projecthami/kai-resource-isolator-webhook:latest" >> "$GITHUB_OUTPUT"
-            echo "libsync=docker.io/projecthami/kai-resource-isolator-libsync:${VERSION},docker.io/projecthami/kai-resource-isolator-libsync:latest" >> "$GITHUB_OUTPUT"
+            echo "tags=${REPO}:${VERSION},${REPO}:latest" >> "$GITHUB_OUTPUT"
             echo "push=true" >> "$GITHUB_OUTPUT"
             echo "platforms=linux/amd64,linux/arm64" >> "$GITHUB_OUTPUT"
           else
-            echo "webhook=docker.io/projecthami/kai-resource-isolator-webhook:ci-latest" >> "$GITHUB_OUTPUT"
-            echo "libsync=docker.io/projecthami/kai-resource-isolator-libsync:ci-latest" >> "$GITHUB_OUTPUT"
+            echo "tags=${REPO}:ci-latest" >> "$GITHUB_OUTPUT"
             echo "push=false" >> "$GITHUB_OUTPUT"
             echo "platforms=linux/amd64" >> "$GITHUB_OUTPUT"
           fi
@@ -56,20 +55,11 @@ jobs:
           username: ${{ secrets.DOCKERHUB_TOKEN }}
           password: ${{ secrets.DOCKERHUB_PASSWD }}
 
-      - name: Build webhook image
+      - name: Build image
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: docker/Dockerfile.webhook
+          file: docker/Dockerfile
           platforms: ${{ steps.meta.outputs.platforms }}
           push: ${{ steps.meta.outputs.push }}
-          tags: ${{ steps.meta.outputs.webhook }}
-
-      - name: Build libsync image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/Dockerfile.libsync
-          platforms: ${{ steps.meta.outputs.platforms }}
-          push: ${{ steps.meta.outputs.push }}
-          tags: ${{ steps.meta.outputs.libsync }}
+          tags: ${{ steps.meta.outputs.tags }}

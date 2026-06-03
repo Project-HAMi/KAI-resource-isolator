@@ -54,42 +54,36 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- printf "%s-libsync" (include "kai-resource-isolator.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end }}
 
-{{- define "kai-resource-isolator.image" -}}
+{{- define "kai-resource-isolator.renderImage" -}}
 {{- $reg := .registry -}}
 {{- $repo := .repository -}}
+{{- $tag := .tag -}}
 {{- if $reg -}}
-{{- printf "%s/%s:%s" $reg $repo .tag -}}
+{{- printf "%s/%s:%s" $reg $repo $tag -}}
 {{- else -}}
-{{- printf "%s:%s" $repo .tag -}}
+{{- printf "%s:%s" $repo $tag -}}
 {{- end -}}
 {{- end }}
 
-{{- define "kai-resource-isolator.webhook.image" -}}
-{{- $img := .Values.webhook.image -}}
+{{- define "kai-resource-isolator.image" -}}
+{{- $img := .Values.image -}}
 {{- $global := .Values.global.imageRegistry -}}
 {{- $reg := default $global $img.registry -}}
-{{- include "kai-resource-isolator.image" (dict "registry" $reg "repository" $img.repository "tag" $img.tag) -}}
-{{- end }}
-
-{{- define "kai-resource-isolator.libsync.image" -}}
-{{- $img := .Values.librarySync.image -}}
-{{- $global := .Values.global.imageRegistry -}}
-{{- $reg := default $global $img.registry -}}
-{{- include "kai-resource-isolator.image" (dict "registry" $reg "repository" $img.repository "tag" $img.tag) -}}
+{{- include "kai-resource-isolator.renderImage" (dict "registry" $reg "repository" $img.repository "tag" $img.tag) -}}
 {{- end }}
 
 {{- define "kai-resource-isolator.patch.imageLegacy" -}}
 {{- $img := .Values.tls.patch.image -}}
 {{- $global := .Values.global.imageRegistry -}}
 {{- $reg := default $global $img.registry -}}
-{{- include "kai-resource-isolator.image" (dict "registry" $reg "repository" $img.repository "tag" $img.tag) -}}
+{{- include "kai-resource-isolator.renderImage" (dict "registry" $reg "repository" $img.repository "tag" $img.tag) -}}
 {{- end }}
 
 {{- define "kai-resource-isolator.patch.imageNew" -}}
 {{- $img := .Values.tls.patch.imageNew -}}
 {{- $global := .Values.global.imageRegistry -}}
 {{- $reg := default $global $img.registry -}}
-{{- include "kai-resource-isolator.image" (dict "registry" $reg "repository" $img.repository "tag" $img.tag) -}}
+{{- include "kai-resource-isolator.renderImage" (dict "registry" $reg "repository" $img.repository "tag" $img.tag) -}}
 {{- end }}
 
 {{- define "kai-resource-isolator.pullSecrets" -}}
