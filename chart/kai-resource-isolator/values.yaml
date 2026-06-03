@@ -49,14 +49,13 @@ webhook:
 tls:
   ## When cert-manager is enabled, set patch.enabled to false.
   certManager:
-    enabled: true
-    ## Create a self-signed ClusterIssuer automatically when issuerRef points to ClusterIssuer/selfsigned.
+    enabled: false
     createSelfSignedClusterIssuer: true
     issuerRef:
       kind: ClusterIssuer
       name: selfsigned
   patch:
-    enabled: false
+    enabled: true
     image:
       registry: docker.io
       repository: jettech/kube-webhook-certgen

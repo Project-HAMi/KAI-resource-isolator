@@ -1,0 +1,21 @@
+linters:
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gofmt
+    - goimports
+    - misspell
+    - revive
+  disable-all: true
+
+run:
+  timeout: 3m
+
+issues:
+  exclude-dirs:
+    - libvgpu
+    - vendor
