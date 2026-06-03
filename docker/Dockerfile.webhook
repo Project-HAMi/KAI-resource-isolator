@@ -1,7 +1,3 @@
-# Build context: kai-resource-isolator repo root (contains go.mod, cmd/).
-#   docker build -f docker/Dockerfile.webhook -t <registry>/kai-resource-isolator-webhook:<tag> .
-# From a monorepo parent directory:
-#   docker build -f kai-resource-isolator/docker/Dockerfile.webhook -t <registry>/kai-resource-isolator-webhook:<tag> kai-resource-isolator
 FROM golang:1.25-bookworm AS build
 WORKDIR /src
 COPY . .

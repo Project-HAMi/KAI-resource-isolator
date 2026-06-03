@@ -10,6 +10,14 @@ metadata:
     {{- include "kai-resource-isolator.labels" . | nindent 4 }}
 rules:
   - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+      - create
+      - update
+  - apiGroups:
       - admissionregistration.k8s.io
     resources:
       - mutatingwebhookconfigurations
