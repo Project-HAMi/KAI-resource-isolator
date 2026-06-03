@@ -32,10 +32,11 @@ jobs:
       - name: Compute image metadata
         id: meta
         run: |
-          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            VERSION="${GITHUB_REF#refs/tags/v}"
-            echo "webhook=docker.io/projecthami/kai-resource-isolator-webhook:${VERSION}"$'\n'"docker.io/projecthami/kai-resource-isolator-webhook:latest" >> "$GITHUB_OUTPUT"
-            echo "libsync=docker.io/projecthami/kai-resource-isolator-libsync:${VERSION}"$'\n'"docker.io/projecthami/kai-resource-isolator-libsync:latest" >> "$GITHUB_OUTPUT"
+          REF="${{ github.ref }}"
+          if [[ "${REF}" == refs/tags/v* ]]; then
+            VERSION="${REF#refs/tags/v}"
+            echo "webhook=docker.io/projecthami/kai-resource-isolator-webhook:${VERSION},docker.io/projecthami/kai-resource-isolator-webhook:latest" >> "$GITHUB_OUTPUT"
+            echo "libsync=docker.io/projecthami/kai-resource-isolator-libsync:${VERSION},docker.io/projecthami/kai-resource-isolator-libsync:latest" >> "$GITHUB_OUTPUT"
             echo "push=true" >> "$GITHUB_OUTPUT"
             echo "platforms=linux/amd64,linux/arm64" >> "$GITHUB_OUTPUT"
           else
