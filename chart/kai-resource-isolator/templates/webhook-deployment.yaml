@@ -34,8 +34,8 @@ spec:
         fsGroup: 65532
       containers:
         - name: webhook
-          image: {{ include "kai-resource-isolator.webhook.image" . }}
-          imagePullPolicy: {{ .Values.webhook.image.pullPolicy }}
+          image: {{ include "kai-resource-isolator.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
           args:
             - --listen=:8443
             - --tls-cert-file=/etc/tls/tls.crt

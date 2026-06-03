@@ -5,9 +5,9 @@ Syncs **libvgpu** onto GPU nodes via a **DaemonSet** and uses a **mutating admis
 ## Prerequisites
 
 - **Binary build**: Go 1.25 or newer (match the version in `go.mod`).
-- **Image build**: Docker or a compatible builder; the webhook image build must reach a Go module proxy (override via `GOPROXY` in `docker/Dockerfile.webhook` if needed).
+- **Image build**: Docker or a compatible builder; the webhook image build must reach a Go module proxy (override via `GOPROXY` in `docker/Dockerfile` if needed).
 - **Deployment**: A Kubernetes cluster and `kubectl`; **Helm 3** is recommended.
-- **Library source**: This repo uses `HAMi-core` as a git submodule at `libvgpu/` and builds `libvgpu.so` from source during `docker/Dockerfile.libsync` build.
+- **Library source**: This repo uses `HAMi-core` as a git submodule at `libvgpu/` and builds `libvgpu.so` from source during `docker/Dockerfile` build.
 
 ## Build locally (without Docker)
 
@@ -23,7 +23,7 @@ To sanity-check compilation, you can also run `go test ./...` when tests exist.
 
 ## Build container images
 
-Dockerfiles live under **`docker/`**. The build context must be the **`kai-resource-isolator` repository root** (the directory that contains `go.mod`, `libvgpu/`, and `cmd/`).
+The build context must be the **`kai-resource-isolator` repository root** (the directory that contains `go.mod`, `libvgpu/`, and `cmd/`).
 
 Before building images, make sure submodules are initialized:
 
@@ -36,8 +36,7 @@ git submodule update --init --recursive
 ```bash
 cd /path/to/kai-resource-isolator
 
-docker build -f docker/Dockerfile.libsync -t <registry>/<project>/kai-resource-isolator-lib:<tag> .
-docker build -f docker/Dockerfile.webhook -t <registry>/<project>/kai-resource-isolator-webhook:<tag> .
+docker build -f docker/Dockerfile -t <registry>/<project>/kai-resource-isolator:<tag> .
 ```
 
 Replace `<registry>/<project>` and `<tag>` with your registry and image tag.
@@ -47,41 +46,34 @@ Replace `<registry>/<project>` and `<tag>` with your registry and image tag.
 If the component lives at `kai-resource-isolator/` under a parent repository, run from the **parent repository root**:
 
 ```bash
-docker build -f kai-resource-isolator/docker/Dockerfile.libsync \
-  -t <registry>/<project>/kai-resource-isolator-lib:<tag> \
-  kai-resource-isolator
-
-docker build -f kai-resource-isolator/docker/Dockerfile.webhook \
-  -t <registry>/<project>/kai-resource-isolator-webhook:<tag> \
+docker build -f kai-resource-isolator/docker/Dockerfile \
+  -t <registry>/<project>/kai-resource-isolator:<tag> \
   kai-resource-isolator
 ```
 
-Push the images:
+Push the image:
 
 ```bash
-docker push <registry>/<project>/kai-resource-isolator-lib:<tag>
-docker push <registry>/<project>/kai-resource-isolator-webhook:<tag>
+docker push <registry>/<project>/kai-resource-isolator:<tag>
 ```
 
 ### Proxy and air-gapped builds
 
-The webhook build uses `GOPROXY`. To change it, edit `ENV GOPROXY=...` in `docker/Dockerfile.webhook`, or pass `docker build --build-arg` after adding a matching `ARG` in the Dockerfile.
+The webhook build uses `GOPROXY`. To change it, edit `ENV GOPROXY=...` in `docker/Dockerfile`, or pass `docker build --build-arg` after adding a matching `ARG` in the Dockerfile.
 
 ## Deploy with Helm
 
 Chart path: `chart/kai-resource-isolator`.
 
-1. **Image settings**: Point `librarySync.image` and `webhook.image` at your pushed images (and optionally set `global.imageRegistry` and `global.imagePullSecrets`) in `values.yaml` or at install time.
+1. **Image settings**: Point `image.repository` and `image.tag` at your pushed image (and optionally set `global.imageRegistry` and `global.imagePullSecrets`) in `values.yaml` or at install time.
 
    Example overrides:
 
    ```bash
    helm upgrade --install kai-resource-isolator ./chart/kai-resource-isolator \
      --namespace kai-resource-isolator --create-namespace \
-     --set librarySync.image.repository=<registry>/<project>/kai-resource-isolator-lib \
-     --set librarySync.image.tag=<tag> \
-     --set webhook.image.repository=<registry>/<project>/kai-resource-isolator-webhook \
-     --set webhook.image.tag=<tag>
+     --set image.repository=<registry>/<project>/kai-resource-isolator \
+     --set image.tag=<tag>
    ```
 
 2. **Namespace**: Use `namespaceOverride` or Helm `--namespace` as needed.

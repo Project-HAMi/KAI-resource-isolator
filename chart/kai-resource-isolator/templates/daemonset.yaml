@@ -30,8 +30,8 @@ spec:
       hostNetwork: false
       containers:
         - name: libsync
-          image: {{ include "kai-resource-isolator.libsync.image" . }}
-          imagePullPolicy: {{ .Values.librarySync.image.pullPolicy }}
+          image: {{ include "kai-resource-isolator.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
           command:
             - /bin/sh
             - -c

@@ -7,6 +7,12 @@ global:
   imageRegistry: ""
   imagePullSecrets: []
 
+image:
+  registry: docker.io
+  repository: projecthami/kai-resource-isolator
+  tag: latest
+  pullPolicy: IfNotPresent
+
 paths:
   ## Host directory base; the chart installs libraries under {hostInstallBase}/vgpu/
   hostInstallBase: /usr/local
@@ -14,11 +20,6 @@ paths:
   containerVgpuMount: /usr/local/vgpu
 
 librarySync:
-  image:
-    registry: docker.io
-    repository: projecthami/kai-resource-isolator-libsync
-    tag: latest
-    pullPolicy: IfNotPresent
   ## Node labels for GPU nodes (empty = all nodes)
   nodeSelector: {}
   tolerations:
@@ -31,11 +32,6 @@ librarySync:
 
 webhook:
   replicaCount: 1
-  image:
-    registry: docker.io
-    repository: projecthami/kai-resource-isolator-webhook
-    tag: latest
-    pullPolicy: IfNotPresent
   resources:
     requests:
       cpu: 10m
