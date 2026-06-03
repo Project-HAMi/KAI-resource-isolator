@@ -7,12 +7,12 @@ Syncs **libvgpu** onto GPU nodes via a **DaemonSet** and uses a **mutating admis
 No need to clone the repo — install directly from the OCI registry:
 
 ```bash
-helm install kai-resource-isolator oci://docker.io/projecthami/kai-resource-isolator \
+helm install kai-resource-isolator oci://docker.io/projecthami/kai-resource-isolator-chart \
   --namespace kai-resource-isolator --create-namespace \
   --version <version>
 ```
 
-Available versions are listed at [projecthami/kai-resource-isolator](https://hub.docker.com/r/projecthami/kai-resource-isolator/tags) on Docker Hub.
+Available chart versions are listed at [projecthami/kai-resource-isolator-chart](https://hub.docker.com/r/projecthami/kai-resource-isolator-chart/tags) on Docker Hub.
 
 ## Prerequisites (for building from source)
 
@@ -73,7 +73,7 @@ After install, verify with `kubectl get daemonset`, `kubectl get mutatingwebhook
 
 On Git tag push (`v*`), the CI workflow:
 
-1. Builds the Docker image (`linux/amd64` + `linux/arm64`) and pushes to Docker Hub as `projecthami/kai-resource-isolator:<version>` and `:latest`
-2. Packages the Helm chart (version synced to tag) and pushes it as an OCI artifact to `docker.io/projecthami/kai-resource-isolator`
+1. Builds the Docker image (`linux/amd64` + `linux/arm64`) and pushes to Docker Hub as `projecthami/kai-resource-isolator:v<x.y.z>` and `:latest`
+2. Packages the Helm chart (version synced to tag) and pushes it as an OCI artifact to `oci://docker.io/projecthami/kai-resource-isolator-chart`
 
 For post-install hints, see the Helm-rendered **NOTES** printed after `helm install`.
