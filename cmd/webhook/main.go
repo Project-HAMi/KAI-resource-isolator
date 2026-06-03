@@ -3,6 +3,7 @@ Copyright The HAMi Authors.
 SPDX-License-Identifier: Apache-2.0
 */
 
+// Package main implements the mutating admission webhook for KAI resource isolator.
 package main
 
 import (

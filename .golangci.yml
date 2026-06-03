@@ -1,21 +1,14 @@
+version: "2"
+
 linters:
   enable:
-    - errcheck
-    - gosimple
-    - govet
-    - ineffassign
-    - staticcheck
-    - unused
-    - gofmt
-    - goimports
     - misspell
     - revive
-  disable-all: true
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
 
 run:
   timeout: 3m
-
-issues:
-  exclude-dirs:
-    - libvgpu
-    - vendor
