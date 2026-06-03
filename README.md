@@ -24,10 +24,10 @@ Install directly from the OCI registry:
 ```bash
 helm install kai-resource-isolator oci://docker.io/projecthami/kai-resource-isolator \
   --namespace kai-resource-isolator --create-namespace \
-  --version <version>-chart
+  --version 1.0.0-chart
 ```
 
-Chart versions carry a `-chart` suffix (e.g. `1.0.0-chart`). Available versions are listed at [projecthami/kai-resource-isolator](https://hub.docker.com/r/projecthami/kai-resource-isolator/tags) on Docker Hub.
+Note: Chart versions carry a `-chart` suffix (e.g. `1.0.0-chart`). Available versions are listed at [projecthami/kai-resource-isolator](https://hub.docker.com/r/projecthami/kai-resource-isolator/tags) on Docker Hub.
 
 ## Build
 
