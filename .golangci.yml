@@ -1,0 +1,14 @@
+version: "2"
+
+linters:
+  enable:
+    - misspell
+    - revive
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+run:
+  timeout: 3m

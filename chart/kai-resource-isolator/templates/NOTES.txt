@@ -1,9 +1,10 @@
 Kai resource isolator is installed in namespace {{ include "kai-resource-isolator.namespace" . }}.
 
-1) Build and push images (build context = kai-resource-isolator directory):
+1) Install via OCI registry (no need to clone the repo):
 
-   docker build -f kai-resource-isolator/docker/Dockerfile.libsync -t <registry>/kai-resource-isolator-lib:<tag> kai-resource-isolator
-   docker build -f kai-resource-isolator/docker/Dockerfile.webhook -t <registry>/kai-resource-isolator-webhook:<tag> kai-resource-isolator
+   helm install kai-resource-isolator oci://docker.io/projecthami/kai-resource-isolator \
+     --namespace kai-resource-isolator --create-namespace \
+     --version {{ .Chart.Version }}
 
 2) Ensure GPU nodes receive libvgpu:
 

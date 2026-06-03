@@ -1,5 +1,5 @@
 # Stage 1: Build libvgpu.so
-FROM nvidia/cuda:12.6.3-devel-ubuntu22.04 AS libvgpu-builder
+FROM nvidia/cuda:12.9.1-cudnn-devel-ubuntu20.04 AS libvgpu-builder
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends cmake make gcc g++ && rm -rf /var/lib/apt/lists/*
 WORKDIR /build/libvgpu
