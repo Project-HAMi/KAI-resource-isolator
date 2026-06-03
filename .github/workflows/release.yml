@@ -73,15 +73,16 @@ jobs:
         run: |
           VERSION="${{ needs.docker.outputs.version }}"
           FULL_TAG="${{ needs.docker.outputs.full_tag }}"
+          CHART_VERSION="${VERSION}-chart"
           CHART_DIR="chart/kai-resource-isolator"
 
-          sed -i "s/^version:.*/version: ${VERSION}/" "${CHART_DIR}/Chart.yaml"
+          sed -i "s/^version:.*/version: ${CHART_VERSION}/" "${CHART_DIR}/Chart.yaml"
           sed -i "s/^appVersion:.*/appVersion: \"${VERSION}\"/" "${CHART_DIR}/Chart.yaml"
           sed -i "s/^  tag:.*/  tag: ${FULL_TAG}/" "${CHART_DIR}/values.yaml"
 
-          helm package "${CHART_DIR}" --version "${VERSION}"
+          helm package "${CHART_DIR}" --version "${CHART_VERSION}"
 
           echo "${{ secrets.DOCKERHUB_PASSWD }}" | helm registry login docker.io \
             --username "${{ secrets.DOCKERHUB_TOKEN }}" --password-stdin
 
-          helm push "kai-resource-isolator-${VERSION}.tgz" oci://docker.io/projecthami/kai-resource-isolator-chart
+          helm push "kai-resource-isolator-${CHART_VERSION}.tgz" oci://docker.io/projecthami/kai-resource-isolator
