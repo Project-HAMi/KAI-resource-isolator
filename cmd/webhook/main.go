@@ -28,6 +28,10 @@ const (
 	injectAnnotationKey = "kai-resource-isolator.io/inject"
 	gpuFractionKey      = "gpu-fraction"
 	gpuMemoryKey        = "gpu-memory"
+	// cudaMemLimitEnv is the HAMi-core (libvgpu) memory-limit env var. KAI sets
+	// the gpu-memory annotation (MiB) but does not pass this env, so libvgpu would
+	// not enforce any cap. We translate gpu-memory -> CUDA_DEVICE_MEMORY_LIMIT=<v>m.
+	cudaMemLimitEnv = "CUDA_DEVICE_MEMORY_LIMIT"
 )
 
 func main() {
@@ -225,10 +229,47 @@ func buildJSONPatch(pod *corev1.Pod, containerMount string) ([]byte, error) {
 		}
 	}
 
+	// Translate the KAI gpu-memory annotation (MiB) into the HAMi-core memory
+	// limit env so libvgpu actually enforces the per-pod cap. gpu-fraction (compute
+	// share) carries no absolute memory value, so we only act on gpu-memory.
+	if memMiB, ok := pod.Annotations[gpuMemoryKey]; ok && memMiB != "" {
+		limitValue := memMiB + "m"
+		for i := range pod.Spec.InitContainers {
+			ops = appendMemLimitEnvOp(ops, &pod.Spec.InitContainers[i], "initContainers", i, limitValue)
+		}
+		for i := range pod.Spec.Containers {
+			ops = appendMemLimitEnvOp(ops, &pod.Spec.Containers[i], "containers", i, limitValue)
+		}
+	}
+
 	if len(ops) == 0 {
 		return nil, nil
 	}
 	return json.Marshal(ops)
+}
+
+// appendMemLimitEnvOp adds a JSON patch op setting CUDA_DEVICE_MEMORY_LIMIT on the
+// container, unless it is already present (user-set values win). It handles the
+// case where the container has no env array yet (add the array, not append to it).
+func appendMemLimitEnvOp(ops []map[string]interface{}, c *corev1.Container, field string, i int, limitValue string) []map[string]interface{} {
+	for _, e := range c.Env {
+		if e.Name == cudaMemLimitEnv {
+			return ops
+		}
+	}
+	envVar := map[string]interface{}{"name": cudaMemLimitEnv, "value": limitValue}
+	if len(c.Env) == 0 {
+		return append(ops, map[string]interface{}{
+			"op":    "add",
+			"path":  fmt.Sprintf("/spec/%s/%d/env", field, i),
+			"value": []map[string]interface{}{envVar},
+		})
+	}
+	return append(ops, map[string]interface{}{
+		"op":    "add",
+		"path":  fmt.Sprintf("/spec/%s/%d/env/-", field, i),
+		"value": envVar,
+	})
 }
 
 func podNeedsInjection(pod *corev1.Pod) bool {
