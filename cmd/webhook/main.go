@@ -7,6 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -14,7 +15,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	admissionv1 "k8s.io/api/admission/v1"
@@ -34,12 +37,41 @@ const (
 	cudaMemLimitEnv = "CUDA_DEVICE_MEMORY_LIMIT"
 )
 
+// perGpuVramMiB is the per-GPU VRAM (MiB) used to translate a gpu-fraction into an
+// absolute HAMi-core memory cap. It comes from the PER_GPU_VRAM_MIB env
+// (authoritative) or is autodetected from node labels and refreshed in the
+// background, so access is atomic. Zero means "unknown" — gpu-fraction caps are
+// then skipped rather than guessed (gpu-memory pods are unaffected).
+var perGpuVramMiB atomic.Int64
+
 func main() {
 	certFile := flag.String("tls-cert-file", "/etc/tls/tls.crt", "TLS certificate")
 	keyFile := flag.String("tls-private-key-file", "/etc/tls/tls.key", "TLS private key")
 	listen := flag.String("listen", defaultListen, "Listen address")
 	containerMount := flag.String("container-vgpu-mount", getenv("CONTAINER_VGPU_MOUNT", "/usr/local/vgpu"), "Mount path inside the pod for the node vgpu directory (must match DaemonSet install path and ld.so.preload)")
 	flag.Parse()
+
+	// Per-GPU VRAM basis for translating gpu-fraction into a HAMi-core memory cap.
+	// Precedence: explicit PER_GPU_VRAM_MIB env (authoritative) > autodetect from
+	// node labels. No hardcoded default — unknown basis means gpu-fraction caps are
+	// skipped (see buildJSONPatch).
+	envOverride := false
+	if v := os.Getenv("PER_GPU_VRAM_MIB"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+			perGpuVramMiB.Store(n)
+			envOverride = true
+			log.Printf("per-GPU VRAM basis = %d MiB (from PER_GPU_VRAM_MIB)", n)
+		} else {
+			log.Printf("ignoring invalid PER_GPU_VRAM_MIB=%q", v)
+		}
+	}
+	if !envOverride {
+		if cs, err := newInClusterClientset(); err != nil {
+			log.Printf("per-GPU VRAM autodetect unavailable (%v); set PER_GPU_VRAM_MIB to enable gpu-fraction caps", err)
+		} else {
+			startVramAutodetect(context.Background(), cs)
+		}
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -229,11 +261,24 @@ func buildJSONPatch(pod *corev1.Pod, containerMount string) ([]byte, error) {
 		}
 	}
 
-	// Translate the KAI gpu-memory annotation (MiB) into the HAMi-core memory
-	// limit env so libvgpu actually enforces the per-pod cap. gpu-fraction (compute
-	// share) carries no absolute memory value, so we only act on gpu-memory.
+	// Translate the KAI resource share into the HAMi-core memory-limit env so
+	// libvgpu actually enforces the per-pod VRAM cap. KAI sets the annotation but
+	// passes no such env. gpu-memory carries an absolute MiB; gpu-fraction carries
+	// a share that we multiply by the per-GPU VRAM. The two are mutually exclusive.
+	limitValue := ""
 	if memMiB, ok := pod.Annotations[gpuMemoryKey]; ok && memMiB != "" {
-		limitValue := memMiB + "m"
+		limitValue = memMiB + "m"
+	} else if fracStr, ok := pod.Annotations[gpuFractionKey]; ok && fracStr != "" {
+		basis := perGpuVramMiB.Load()
+		if frac, err := strconv.ParseFloat(fracStr, 64); err != nil || frac <= 0 {
+			log.Printf("gpu-fraction %q unparseable; skipping memory-limit injection", fracStr)
+		} else if basis <= 0 {
+			log.Printf("per-GPU VRAM unknown (no PER_GPU_VRAM_MIB env and no %s node label); skipping gpu-fraction memory cap", gpuMemoryNodeLabel)
+		} else if limitMiB := int64(frac * float64(basis)); limitMiB > 0 {
+			limitValue = strconv.FormatInt(limitMiB, 10) + "m"
+		}
+	}
+	if limitValue != "" {
 		for i := range pod.Spec.InitContainers {
 			ops = appendMemLimitEnvOp(ops, &pod.Spec.InitContainers[i], "initContainers", i, limitValue)
 		}

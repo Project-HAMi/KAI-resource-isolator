@@ -1,0 +1,31 @@
+{{/*
+The webhook autodetects per-GPU VRAM from node labels (nvidia.com/gpu.memory) to
+translate gpu-fraction into an absolute HAMi-core memory cap. That requires
+read access to nodes. Not needed when PER_GPU_VRAM_MIB is set explicitly, but
+harmless (read-only) to grant either way.
+*/}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kai-resource-isolator.webhook.fullname" . }}-vram-autodetect
+  labels:
+    {{- include "kai-resource-isolator.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "kai-resource-isolator.webhook.fullname" . }}-vram-autodetect
+  labels:
+    {{- include "kai-resource-isolator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "kai-resource-isolator.webhook.fullname" . }}-vram-autodetect
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kai-resource-isolator.webhook.fullname" . }}
+    namespace: {{ .Release.Namespace }}
