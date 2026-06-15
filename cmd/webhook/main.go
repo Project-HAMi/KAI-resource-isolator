@@ -73,6 +73,9 @@ func main() {
 		}
 	}
 
+	// NVIDIA_VISIBLE_DEVICES env-bypass guard (off/audit/enforce, default audit).
+	initNvdGuard()
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -185,12 +188,27 @@ func writeAdmission(w http.ResponseWriter, review *admissionv1.AdmissionReview, 
 	}
 }
 
-func buildJSONPatch(pod *corev1.Pod, containerMount string) ([]byte, error) {
-	if !podNeedsInjection(pod) {
+// marshalOps returns the JSON-encoded patch, or (nil, nil) when there are no ops.
+func marshalOps(ops []map[string]interface{}) ([]byte, error) {
+	if len(ops) == 0 {
 		return nil, nil
 	}
+	return json.Marshal(ops)
+}
 
+func buildJSONPatch(pod *corev1.Pod, containerMount string) ([]byte, error) {
 	var ops []map[string]interface{}
+
+	// Security guard: neutralize NVIDIA_VISIBLE_DEVICES on pods that use a GPU
+	// runtimeClass but are not authorized GPU workloads (closes the env bypass
+	// enabled by ACCEPT_NVIDIA_VISIBLE_DEVICES_ENVVAR_WHEN_UNPRIVILEGED=true).
+	// Runs for every pod, independent of libvgpu injection below.
+	ops = append(ops, nvidiaVisibleDevicesGuardOps(pod)...)
+
+	// libvgpu mount + CUDA_DEVICE_MEMORY_LIMIT injection — only for KAI share pods.
+	if !podNeedsInjection(pod) {
+		return marshalOps(ops)
+	}
 
 	hasVol := false
 	for _, v := range pod.Spec.Volumes {

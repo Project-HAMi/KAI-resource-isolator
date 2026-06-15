@@ -51,6 +51,13 @@ webhook:
   ## Comma-separated extended resources that trigger injection (HAMi vGPU sharing)
   gpuShareResources: "nvidia.com/gpu,nvidia.com/gpumem,nvidia.com/gpucores"
   failurePolicy: Ignore
+  ## NVIDIA_VISIBLE_DEVICES env-bypass guard: off | audit | enforce.
+  ## audit (default) logs unauthorized GPU-runtime pods without mutating — observe
+  ## logs to confirm no system pods are flagged, then switch to enforce.
+  nvidiaVisibleDevicesGuard: "audit"
+  ## Optional: override trusted namespaces (comma-separated). Empty = built-in
+  ## default (gpu-operator,kube-system,kai-scheduler,kai-resource-reservation,nvidia-network-operator).
+  guardAllowedNamespaces: ""
 
 tls:
   ## When cert-manager is enabled, set patch.enabled to false.
