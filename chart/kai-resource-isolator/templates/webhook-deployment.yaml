@@ -47,6 +47,10 @@ spec:
               value: {{ .Values.paths.containerVgpuMount | quote }}
             - name: GPU_SHARE_RESOURCES
               value: {{ .Values.webhook.gpuShareResources | quote }}
+            {{- with .Values.image.perGpuVramMiB }}
+            - name: PER_GPU_VRAM_MIB
+              value: {{ . | quote }}
+            {{- end }}
           ports:
             - name: https
               containerPort: 8443

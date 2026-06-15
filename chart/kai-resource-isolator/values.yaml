@@ -9,9 +9,14 @@ global:
 
 image:
   registry: docker.io
-  repository: projecthami/kai-resource-isolator
-  tag: latest
+  ## Patched isolator: gpu-memory + gpu-fraction -> CUDA_DEVICE_MEMORY_LIMIT,
+  ## per-GPU VRAM autodetected from node labels via a Node informer.
+  repository: howdi2000/kai-resource-isolator
+  tag: v1.0.0-memlimit4
   pullPolicy: IfNotPresent
+  ## Optional: override per-GPU VRAM (MiB) instead of node-label autodetect.
+  ## Leave empty to autodetect from nvidia.com/gpu.memory.
+  perGpuVramMiB: ""
 
 paths:
   ## Host directory base; the chart installs libraries under {hostInstallBase}/vgpu/
@@ -20,8 +25,9 @@ paths:
   containerVgpuMount: /usr/local/vgpu
 
 librarySync:
-  ## Node labels for GPU nodes (empty = all nodes)
-  nodeSelector: {}
+  ## Node labels for GPU nodes — libvgpu is synced only to GPU nodes.
+  nodeSelector:
+    nvidia.com/gpu.present: "true"
   tolerations:
     - operator: Exists
       effect: NoSchedule

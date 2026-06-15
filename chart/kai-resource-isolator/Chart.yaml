@@ -1,6 +1,6 @@
 apiVersion: v2
 name: kai-resource-isolator
-description: DaemonSet to sync HAMi libvgpu to GPU nodes and mutating webhook to inject into GPU-sharing pods.
+description: HAMi libvgpu sync DaemonSet + mutating webhook that enforces GPU VRAM soft-quota (gpu-memory & gpu-fraction -> CUDA_DEVICE_MEMORY_LIMIT) for KAI fractional-sharing pods. Self-contained one-shot install (cert-gen job + nodes-autodetect RBAC bundled).
 type: application
-version: 0.1.0
-appVersion: "0.1.0"
+version: 0.2.0
+appVersion: "v1.0.0-memlimit4"
