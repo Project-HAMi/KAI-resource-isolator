@@ -12,6 +12,9 @@ image:
   repository: projecthami/kai-resource-isolator
   tag: latest
   pullPolicy: IfNotPresent
+  ## Optional: override per-GPU VRAM (MiB) instead of node-label autodetect.
+  ## Leave empty to autodetect from the nvidia.com/gpu.memory node label.
+  perGpuVramMiB: ""
 
 paths:
   ## Host directory base; the chart installs libraries under {hostInstallBase}/vgpu/
@@ -20,7 +23,8 @@ paths:
   containerVgpuMount: /usr/local/vgpu
 
 librarySync:
-  ## Node labels for GPU nodes (empty = all nodes)
+  ## Node labels for GPU nodes (empty = all nodes; set e.g.
+  ## nvidia.com/gpu.present: "true" to sync libvgpu only to GPU nodes).
   nodeSelector: {}
   tolerations:
     - operator: Exists
@@ -45,6 +49,13 @@ webhook:
   ## Comma-separated extended resources that trigger injection (HAMi vGPU sharing)
   gpuShareResources: "nvidia.com/gpu,nvidia.com/gpumem,nvidia.com/gpucores"
   failurePolicy: Ignore
+  ## NVIDIA_VISIBLE_DEVICES env-bypass guard: off | audit | enforce.
+  ## audit (default) logs unauthorized GPU-runtime pods without mutating — observe
+  ## logs to confirm no system pods are flagged, then switch to enforce.
+  nvidiaVisibleDevicesGuard: "audit"
+  ## Optional: override trusted namespaces (comma-separated). Empty = built-in
+  ## default (gpu-operator,kube-system,kai-scheduler,kai-resource-reservation,nvidia-network-operator).
+  guardAllowedNamespaces: ""
 
 tls:
   ## When cert-manager is enabled, set patch.enabled to false.

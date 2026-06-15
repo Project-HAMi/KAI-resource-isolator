@@ -7,6 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -14,7 +15,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	admissionv1 "k8s.io/api/admission/v1"
@@ -28,7 +31,18 @@ const (
 	injectAnnotationKey = "kai-resource-isolator.io/inject"
 	gpuFractionKey      = "gpu-fraction"
 	gpuMemoryKey        = "gpu-memory"
+	// cudaMemLimitEnv is the HAMi-core (libvgpu) memory-limit env var. KAI sets
+	// the gpu-memory annotation (MiB) but does not pass this env, so libvgpu would
+	// not enforce any cap. We translate gpu-memory -> CUDA_DEVICE_MEMORY_LIMIT=<v>m.
+	cudaMemLimitEnv = "CUDA_DEVICE_MEMORY_LIMIT"
 )
+
+// perGpuVramMiB is the per-GPU VRAM (MiB) used to translate a gpu-fraction into an
+// absolute HAMi-core memory cap. It comes from the PER_GPU_VRAM_MIB env
+// (authoritative) or is autodetected from node labels and refreshed in the
+// background, so access is atomic. Zero means "unknown" — gpu-fraction caps are
+// then skipped rather than guessed (gpu-memory pods are unaffected).
+var perGpuVramMiB atomic.Int64
 
 func main() {
 	certFile := flag.String("tls-cert-file", "/etc/tls/tls.crt", "TLS certificate")
@@ -36,6 +50,31 @@ func main() {
 	listen := flag.String("listen", defaultListen, "Listen address")
 	containerMount := flag.String("container-vgpu-mount", getenv("CONTAINER_VGPU_MOUNT", "/usr/local/vgpu"), "Mount path inside the pod for the node vgpu directory (must match DaemonSet install path and ld.so.preload)")
 	flag.Parse()
+
+	// Per-GPU VRAM basis for translating gpu-fraction into a HAMi-core memory cap.
+	// Precedence: explicit PER_GPU_VRAM_MIB env (authoritative) > autodetect from
+	// node labels. No hardcoded default — unknown basis means gpu-fraction caps are
+	// skipped (see buildJSONPatch).
+	envOverride := false
+	if v := os.Getenv("PER_GPU_VRAM_MIB"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+			perGpuVramMiB.Store(n)
+			envOverride = true
+			log.Printf("per-GPU VRAM basis = %d MiB (from PER_GPU_VRAM_MIB)", n)
+		} else {
+			log.Printf("ignoring invalid PER_GPU_VRAM_MIB=%q", v)
+		}
+	}
+	if !envOverride {
+		if cs, err := newInClusterClientset(); err != nil {
+			log.Printf("per-GPU VRAM autodetect unavailable (%v); set PER_GPU_VRAM_MIB to enable gpu-fraction caps", err)
+		} else {
+			startVramAutodetect(context.Background(), cs)
+		}
+	}
+
+	// NVIDIA_VISIBLE_DEVICES env-bypass guard (off/audit/enforce, default audit).
+	initNvdGuard()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -149,12 +188,27 @@ func writeAdmission(w http.ResponseWriter, review *admissionv1.AdmissionReview, 
 	}
 }
 
-func buildJSONPatch(pod *corev1.Pod, containerMount string) ([]byte, error) {
-	if !podNeedsInjection(pod) {
+// marshalOps returns the JSON-encoded patch, or (nil, nil) when there are no ops.
+func marshalOps(ops []map[string]interface{}) ([]byte, error) {
+	if len(ops) == 0 {
 		return nil, nil
 	}
+	return json.Marshal(ops)
+}
 
+func buildJSONPatch(pod *corev1.Pod, containerMount string) ([]byte, error) {
 	var ops []map[string]interface{}
+
+	// Security guard: neutralize NVIDIA_VISIBLE_DEVICES on pods that use a GPU
+	// runtimeClass but are not authorized GPU workloads (closes the env bypass
+	// enabled by ACCEPT_NVIDIA_VISIBLE_DEVICES_ENVVAR_WHEN_UNPRIVILEGED=true).
+	// Runs for every pod, independent of libvgpu injection below.
+	ops = append(ops, nvidiaVisibleDevicesGuardOps(pod)...)
+
+	// libvgpu mount + CUDA_DEVICE_MEMORY_LIMIT injection — only for KAI share pods.
+	if !podNeedsInjection(pod) {
+		return marshalOps(ops)
+	}
 
 	hasVol := false
 	for _, v := range pod.Spec.Volumes {
@@ -225,10 +279,60 @@ func buildJSONPatch(pod *corev1.Pod, containerMount string) ([]byte, error) {
 		}
 	}
 
+	// Translate the KAI resource share into the HAMi-core memory-limit env so
+	// libvgpu actually enforces the per-pod VRAM cap. KAI sets the annotation but
+	// passes no such env. gpu-memory carries an absolute MiB; gpu-fraction carries
+	// a share that we multiply by the per-GPU VRAM. The two are mutually exclusive.
+	limitValue := ""
+	if memMiB, ok := pod.Annotations[gpuMemoryKey]; ok && memMiB != "" {
+		limitValue = memMiB + "m"
+	} else if fracStr, ok := pod.Annotations[gpuFractionKey]; ok && fracStr != "" {
+		basis := perGpuVramMiB.Load()
+		if frac, err := strconv.ParseFloat(fracStr, 64); err != nil || frac <= 0 {
+			log.Printf("gpu-fraction %q unparseable; skipping memory-limit injection", fracStr)
+		} else if basis <= 0 {
+			log.Printf("per-GPU VRAM unknown (no PER_GPU_VRAM_MIB env and no %s node label); skipping gpu-fraction memory cap", gpuMemoryNodeLabel)
+		} else if limitMiB := int64(frac * float64(basis)); limitMiB > 0 {
+			limitValue = strconv.FormatInt(limitMiB, 10) + "m"
+		}
+	}
+	if limitValue != "" {
+		for i := range pod.Spec.InitContainers {
+			ops = appendMemLimitEnvOp(ops, &pod.Spec.InitContainers[i], "initContainers", i, limitValue)
+		}
+		for i := range pod.Spec.Containers {
+			ops = appendMemLimitEnvOp(ops, &pod.Spec.Containers[i], "containers", i, limitValue)
+		}
+	}
+
 	if len(ops) == 0 {
 		return nil, nil
 	}
 	return json.Marshal(ops)
+}
+
+// appendMemLimitEnvOp adds a JSON patch op setting CUDA_DEVICE_MEMORY_LIMIT on the
+// container, unless it is already present (user-set values win). It handles the
+// case where the container has no env array yet (add the array, not append to it).
+func appendMemLimitEnvOp(ops []map[string]interface{}, c *corev1.Container, field string, i int, limitValue string) []map[string]interface{} {
+	for _, e := range c.Env {
+		if e.Name == cudaMemLimitEnv {
+			return ops
+		}
+	}
+	envVar := map[string]interface{}{"name": cudaMemLimitEnv, "value": limitValue}
+	if len(c.Env) == 0 {
+		return append(ops, map[string]interface{}{
+			"op":    "add",
+			"path":  fmt.Sprintf("/spec/%s/%d/env", field, i),
+			"value": []map[string]interface{}{envVar},
+		})
+	}
+	return append(ops, map[string]interface{}{
+		"op":    "add",
+		"path":  fmt.Sprintf("/spec/%s/%d/env/-", field, i),
+		"value": envVar,
+	})
 }
 
 func podNeedsInjection(pod *corev1.Pod) bool {
