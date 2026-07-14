@@ -14,6 +14,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path"
 	"strings"
 	"time"
 
@@ -25,10 +26,16 @@ import (
 const (
 	defaultListen               = ":8443"
 	volumeName                  = "kai-resource-isolator-vgpu"
+	volumeNameContainers        = "kai-resource-isolator-containers"
+	volumeNameVgpulock          = "kai-resource-isolator-vgpulock"
 	injectAnnotationKey         = "kai-resource-isolator.io/inject"
 	gpuFractionKey              = "gpu-fraction"
 	gpuMemoryKey                = "gpu-memory"
 	gpuFractionContainerNameKey = "gpu-fraction-container-name" // KAI-scheduler annotation
+	envPodUID                   = "POD_UID"
+	envContainerName            = "CONTAINER_NAME"
+	envContainerVgpuMount       = "CONTAINER_VGPU_MOUNT"
+	vgpuLockPath                = "/tmp/vgpulock"
 )
 
 func main() {
@@ -155,35 +162,43 @@ func buildJSONPatch(pod *corev1.Pod, containerMount string) ([]byte, error) {
 		return nil, nil
 	}
 
+	target, specField, err := fractionContainer(pod)
+	if err != nil {
+		return nil, err
+	}
+	// v1 metrics mounts/env apply only when the fraction target is a regular container.
+	metricsEnabled := specField == "containers"
+	containersMountPath := path.Join(containerMount, "containers")
+
 	var ops []map[string]interface{}
 
-	hasVol := false
-	for _, v := range pod.Spec.Volumes {
-		if v.Name == volumeName {
-			hasVol = true
-			break
+	var newVols []interface{}
+	if !hasVolume(pod, volumeName) {
+		newVols = append(newVols, hostPathVolume(volumeName, containerMount))
+	}
+	if metricsEnabled {
+		if !hasVolume(pod, volumeNameContainers) {
+			newVols = append(newVols, hostPathVolume(volumeNameContainers, containersMountPath))
+		}
+		if !hasVolume(pod, volumeNameVgpulock) {
+			newVols = append(newVols, hostPathVolume(volumeNameVgpulock, vgpuLockPath))
 		}
 	}
-	if !hasVol {
-		vol := map[string]interface{}{
-			"name": volumeName,
-			"hostPath": map[string]interface{}{
-				"path": containerMount,
-				"type": string(corev1.HostPathDirectoryOrCreate),
-			},
-		}
+	if len(newVols) > 0 {
 		if len(pod.Spec.Volumes) == 0 {
 			ops = append(ops, map[string]interface{}{
 				"op":    "add",
 				"path":  "/spec/volumes",
-				"value": []interface{}{vol},
+				"value": newVols,
 			})
 		} else {
-			ops = append(ops, map[string]interface{}{
-				"op":    "add",
-				"path":  "/spec/volumes/-",
-				"value": vol,
-			})
+			for _, vol := range newVols {
+				ops = append(ops, map[string]interface{}{
+					"op":    "add",
+					"path":  "/spec/volumes/-",
+					"value": vol,
+				})
+			}
 		}
 	}
 
@@ -198,19 +213,32 @@ func buildJSONPatch(pod *corev1.Pod, containerMount string) ([]byte, error) {
 		"subPath":   "ld.so.preload",
 		"readOnly":  true,
 	}
-
-	target, specField, err := fractionContainer(pod)
-	if err != nil {
-		return nil, err
+	mountContainers := map[string]interface{}{
+		"name":      volumeNameContainers,
+		"mountPath": containersMountPath,
+		"readOnly":  false,
 	}
-	c := target.container
+	mountVgpulock := map[string]interface{}{
+		"name":      volumeNameVgpulock,
+		"mountPath": vgpuLockPath,
+		"readOnly":  false,
+	}
 
+	c := target.container
 	var newMounts []interface{}
 	if !hasMount(c, volumeName, containerMount, "") {
 		newMounts = append(newMounts, mountDir)
 	}
 	if !hasMount(c, volumeName, "/etc/ld.so.preload", "ld.so.preload") {
 		newMounts = append(newMounts, mountPreload)
+	}
+	if metricsEnabled {
+		if !hasMount(c, volumeNameContainers, containersMountPath, "") {
+			newMounts = append(newMounts, mountContainers)
+		}
+		if !hasMount(c, volumeNameVgpulock, vgpuLockPath, "") {
+			newMounts = append(newMounts, mountVgpulock)
+		}
 	}
 	if len(newMounts) > 0 {
 		if len(c.VolumeMounts) == 0 {
@@ -230,6 +258,10 @@ func buildJSONPatch(pod *corev1.Pod, containerMount string) ([]byte, error) {
 		}
 	}
 
+	if metricsEnabled {
+		ops = appendMetricsEnvIfMissing(ops, specField, target.index, c, c.Name, containerMount)
+	}
+
 	if len(ops) == 0 {
 		return nil, nil
 	}
@@ -245,7 +277,10 @@ type containerRef struct {
 // preload target — mirroring KAI-scheduler's GetFractionContainerRef:
 // named by annotation (init containers first), defaulting to containers[0].
 func fractionContainer(pod *corev1.Pod) (ref containerRef, specField string, err error) {
-	name, found := pod.Annotations[gpuFractionContainerNameKey]
+	name, found := "", false
+	if pod.Annotations != nil {
+		name, found = pod.Annotations[gpuFractionContainerNameKey]
+	}
 	if !found {
 		if len(pod.Spec.Containers) == 0 {
 			return containerRef{}, "", fmt.Errorf("pod has no containers")
@@ -266,6 +301,63 @@ func fractionContainer(pod *corev1.Pod) (ref containerRef, specField string, err
 	return containerRef{}, "", fmt.Errorf("container with name %s not found for fraction request", name)
 }
 
+func hostPathVolume(name, hostPath string) map[string]interface{} {
+	return map[string]interface{}{
+		"name": name,
+		"hostPath": map[string]interface{}{
+			"path": hostPath,
+			"type": string(corev1.HostPathDirectoryOrCreate),
+		},
+	}
+}
+
+func appendMetricsEnvIfMissing(ops []map[string]interface{}, containerField string, index int, c *corev1.Container, containerName, containerMount string) []map[string]interface{} {
+	basePath := fmt.Sprintf("/spec/%s/%d/env", containerField, index)
+
+	var newEnvs []interface{}
+	if !hasEnvVar(c, envPodUID) {
+		newEnvs = append(newEnvs, map[string]interface{}{
+			"name": envPodUID,
+			"valueFrom": map[string]interface{}{
+				"fieldRef": map[string]interface{}{
+					"apiVersion": "v1",
+					"fieldPath":  "metadata.uid",
+				},
+			},
+		})
+	}
+	if !hasEnvVar(c, envContainerName) {
+		newEnvs = append(newEnvs, map[string]interface{}{
+			"name":  envContainerName,
+			"value": containerName,
+		})
+	}
+	if !hasEnvVar(c, envContainerVgpuMount) {
+		newEnvs = append(newEnvs, map[string]interface{}{
+			"name":  envContainerVgpuMount,
+			"value": containerMount,
+		})
+	}
+	if len(newEnvs) == 0 {
+		return ops
+	}
+	if c.Env == nil {
+		return append(ops, map[string]interface{}{
+			"op":    "add",
+			"path":  basePath,
+			"value": newEnvs,
+		})
+	}
+	for _, env := range newEnvs {
+		ops = append(ops, map[string]interface{}{
+			"op":    "add",
+			"path":  basePath + "/-",
+			"value": env,
+		})
+	}
+	return ops
+}
+
 func podNeedsInjection(pod *corev1.Pod) bool {
 	if pod.Annotations == nil {
 		return false
@@ -275,9 +367,27 @@ func podNeedsInjection(pod *corev1.Pod) bool {
 	return hasFraction || hasMemory
 }
 
+func hasVolume(pod *corev1.Pod, name string) bool {
+	for _, v := range pod.Spec.Volumes {
+		if v.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
 func hasMount(c *corev1.Container, volName, mountPath, subPath string) bool {
 	for _, m := range c.VolumeMounts {
 		if m.Name == volName && m.MountPath == mountPath && m.SubPath == subPath {
+			return true
+		}
+	}
+	return false
+}
+
+func hasEnvVar(c *corev1.Container, name string) bool {
+	for _, e := range c.Env {
+		if e.Name == name {
 			return true
 		}
 	}
