@@ -54,6 +54,10 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- printf "%s-libsync" (include "kai-resource-isolator.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end }}
 
+{{- define "kai-resource-isolator.monitor.fullname" -}}
+{{- printf "%s-monitor" (include "kai-resource-isolator.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end }}
+
 {{- define "kai-resource-isolator.renderImage" -}}
 {{- $reg := .registry -}}
 {{- $repo := .repository -}}

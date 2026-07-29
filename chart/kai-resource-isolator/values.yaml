@@ -30,6 +30,41 @@ librarySync:
   podLabels: {}
   podAnnotations: {}
 
+## kai-vgpu-monitor: per-container VRAM metrics (hami_* names) on :9394
+monitor:
+  ## Opt-in: the monitor runs a privileged DaemonSet that mmaps libvgpu caches and
+  ## needs NVML, so it belongs on GPU nodes only. Review nodeSelector before enabling.
+  enabled: false
+  ## Node labels that select GPU nodes. Default matches NVIDIA GPU feature discovery;
+  ## set to {} only if every node in the cluster has NVIDIA GPUs.
+  nodeSelector:
+    nvidia.com/gpu.present: "true"
+  tolerations:
+    - operator: Exists
+      effect: NoSchedule
+  ## Set when NVML needs the NVIDIA container runtime handler (e.g. "nvidia")
+  runtimeClassName: ""
+  resources: {}
+  priorityClassName: system-node-critical
+  podLabels: {}
+  podAnnotations: {}
+  resyncInterval: 5m
+  updateInterval: 5s
+  metricsPort: 9394
+  service:
+    type: ClusterIP
+    port: 9394
+    annotations: {}
+    labels: {}
+  ## Optional Prometheus Operator ServiceMonitor
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+    labels: {}
+  ## Emit legacy HAMi metric names alongside hami_*
+  legacyMetrics: false
+
 webhook:
   replicaCount: 1
   resources:

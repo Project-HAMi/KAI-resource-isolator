@@ -1,0 +1,23 @@
+{{- if and .Values.monitor.enabled .Values.monitor.serviceMonitor.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1") }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "kai-resource-isolator.monitor.fullname" . }}
+  namespace: {{ include "kai-resource-isolator.namespace" . }}
+  labels:
+    app.kubernetes.io/component: kai-vgpu-monitor
+    {{- include "kai-resource-isolator.labels" . | nindent 4 }}
+    {{- with .Values.monitor.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: kai-vgpu-monitor
+      {{- include "kai-resource-isolator.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: {{ .Values.monitor.serviceMonitor.interval }}
+      scrapeTimeout: {{ .Values.monitor.serviceMonitor.scrapeTimeout }}
+{{- end }}

@@ -38,6 +38,31 @@ git submodule update --init --recursive
 docker build -f docker/Dockerfile -t <registry>/<project>/kai-resource-isolator:<tag> .
 ```
 
+## Per-container VRAM metrics (optional)
+
+`kai-vgpu-monitor` is a DaemonSet that reads the shared-memory cache `libvgpu.so` writes for each GPU container and exposes HAMi-compatible gauges (`hami_vgpu_memory_used_bytes`, `hami_vgpu_memory_limit_bytes`, `hami_container_device_utilization_ratio`, …) on `:9394/metrics`, so existing HAMi Grafana dashboards work unchanged.
+
+It is disabled by default because it runs privileged and needs NVML. Enable it on GPU nodes:
+
+```bash
+helm upgrade --install kai-resource-isolator oci://docker.io/projecthami/kai-resource-isolator \
+  --namespace kai-resource-isolator --create-namespace \
+  --set monitor.enabled=true \
+  --set monitor.serviceMonitor.enabled=true
+```
+
+The default `monitor.nodeSelector` is `nvidia.com/gpu.present: "true"` (NVIDIA GPU feature discovery). Set `monitor.runtimeClassName=nvidia` if NVML is only available through the NVIDIA runtime handler in your cluster.
+
+Requirements for per-container series:
+
+| Requirement | Why |
+|---|---|
+| A `libvgpu.so` build that derives its cache path from `CONTAINER_VGPU_MOUNT`, `POD_UID` and `CONTAINER_NAME` ([HAMi-core #219](https://github.com/Project-HAMi/HAMi-core/pull/219)) | Puts the cache on a host path the monitor can read |
+| Webhook injection of those env vars plus the `containers/` hostPath mount | Without it the cache stays inside the container and only host GPU gauges are exported |
+| A container that has called `cuInit` | The cache is created on first CUDA use |
+
+Cache layout matches [HAMi-core #219](https://github.com/Project-HAMi/HAMi-core/pull/219): a single shared-region file at `{containerVgpuMount}/containers/{podUID}_{containerName}` (not a directory).
+
 ## Customization
 
 Tune `paths.containerVgpuMount` and `webhook.gpuShareResources` for your environment and HAMi extended resource names.
