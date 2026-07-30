@@ -23,11 +23,12 @@ import (
 )
 
 const (
-	defaultListen       = ":8443"
-	volumeName          = "kai-resource-isolator-vgpu"
-	injectAnnotationKey = "kai-resource-isolator.io/inject"
-	gpuFractionKey      = "gpu-fraction"
-	gpuMemoryKey        = "gpu-memory"
+	defaultListen               = ":8443"
+	volumeName                  = "kai-resource-isolator-vgpu"
+	injectAnnotationKey         = "kai-resource-isolator.io/inject"
+	gpuFractionKey              = "gpu-fraction"
+	gpuMemoryKey                = "gpu-memory"
+	gpuFractionContainerNameKey = "gpu-fraction-container-name" // KAI-scheduler annotation
 )
 
 func main() {
@@ -171,11 +172,19 @@ func buildJSONPatch(pod *corev1.Pod, containerMount string) ([]byte, error) {
 				"type": string(corev1.HostPathDirectoryOrCreate),
 			},
 		}
-		ops = append(ops, map[string]interface{}{
-			"op":    "add",
-			"path":  "/spec/volumes/-",
-			"value": vol,
-		})
+		if len(pod.Spec.Volumes) == 0 {
+			ops = append(ops, map[string]interface{}{
+				"op":    "add",
+				"path":  "/spec/volumes",
+				"value": []interface{}{vol},
+			})
+		} else {
+			ops = append(ops, map[string]interface{}{
+				"op":    "add",
+				"path":  "/spec/volumes/-",
+				"value": vol,
+			})
+		}
 	}
 
 	mountDir := map[string]interface{}{
@@ -190,38 +199,34 @@ func buildJSONPatch(pod *corev1.Pod, containerMount string) ([]byte, error) {
 		"readOnly":  true,
 	}
 
-	for i := range pod.Spec.InitContainers {
-		c := &pod.Spec.InitContainers[i]
-		if !hasMount(c, volumeName, containerMount, "") {
-			ops = append(ops, map[string]interface{}{
-				"op":    "add",
-				"path":  fmt.Sprintf("/spec/initContainers/%d/volumeMounts/-", i),
-				"value": mountDir,
-			})
-		}
-		if !hasMount(c, volumeName, "/etc/ld.so.preload", "ld.so.preload") {
-			ops = append(ops, map[string]interface{}{
-				"op":    "add",
-				"path":  fmt.Sprintf("/spec/initContainers/%d/volumeMounts/-", i),
-				"value": mountPreload,
-			})
-		}
+	target, specField, err := fractionContainer(pod)
+	if err != nil {
+		return nil, err
 	}
-	for i := range pod.Spec.Containers {
-		c := &pod.Spec.Containers[i]
-		if !hasMount(c, volumeName, containerMount, "") {
+	c := target.container
+
+	var newMounts []interface{}
+	if !hasMount(c, volumeName, containerMount, "") {
+		newMounts = append(newMounts, mountDir)
+	}
+	if !hasMount(c, volumeName, "/etc/ld.so.preload", "ld.so.preload") {
+		newMounts = append(newMounts, mountPreload)
+	}
+	if len(newMounts) > 0 {
+		if len(c.VolumeMounts) == 0 {
 			ops = append(ops, map[string]interface{}{
 				"op":    "add",
-				"path":  fmt.Sprintf("/spec/containers/%d/volumeMounts/-", i),
-				"value": mountDir,
+				"path":  fmt.Sprintf("/spec/%s/%d/volumeMounts", specField, target.index),
+				"value": newMounts,
 			})
-		}
-		if !hasMount(c, volumeName, "/etc/ld.so.preload", "ld.so.preload") {
-			ops = append(ops, map[string]interface{}{
-				"op":    "add",
-				"path":  fmt.Sprintf("/spec/containers/%d/volumeMounts/-", i),
-				"value": mountPreload,
-			})
+		} else {
+			for _, m := range newMounts {
+				ops = append(ops, map[string]interface{}{
+					"op":    "add",
+					"path":  fmt.Sprintf("/spec/%s/%d/volumeMounts/-", specField, target.index),
+					"value": m,
+				})
+			}
 		}
 	}
 
@@ -229,6 +234,36 @@ func buildJSONPatch(pod *corev1.Pod, containerMount string) ([]byte, error) {
 		return nil, nil
 	}
 	return json.Marshal(ops)
+}
+
+type containerRef struct {
+	container *corev1.Container
+	index     int
+}
+
+// fractionContainer resolves the GPU fraction container — the only safe
+// preload target — mirroring KAI-scheduler's GetFractionContainerRef:
+// named by annotation (init containers first), defaulting to containers[0].
+func fractionContainer(pod *corev1.Pod) (ref containerRef, specField string, err error) {
+	name, found := pod.Annotations[gpuFractionContainerNameKey]
+	if !found {
+		if len(pod.Spec.Containers) == 0 {
+			return containerRef{}, "", fmt.Errorf("pod has no containers")
+		}
+		return containerRef{container: &pod.Spec.Containers[0], index: 0}, "containers", nil
+	}
+
+	for i := range pod.Spec.InitContainers {
+		if pod.Spec.InitContainers[i].Name == name {
+			return containerRef{container: &pod.Spec.InitContainers[i], index: i}, "initContainers", nil
+		}
+	}
+	for i := range pod.Spec.Containers {
+		if pod.Spec.Containers[i].Name == name {
+			return containerRef{container: &pod.Spec.Containers[i], index: i}, "containers", nil
+		}
+	}
+	return containerRef{}, "", fmt.Errorf("container with name %s not found for fraction request", name)
 }
 
 func podNeedsInjection(pod *corev1.Pod) bool {
