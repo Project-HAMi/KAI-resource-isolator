@@ -14,6 +14,7 @@ labels: bug
 
 **Anything else we need to know?**:
 
+Before posting, remove or mask Secrets, credentials, tokens, and personal or sensitive data from manifests, Helm values, logs, and error messages.
 Please include any relevant Kubernetes manifests, Helm values, webhook logs, scheduler logs, kubelet logs, or error messages.
 
 **Environment**:
