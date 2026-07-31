@@ -82,6 +82,15 @@ func Test_DeviceNum(t *testing.T) {
 			},
 			want: int(4),
 		},
+		{
+			name: "device num above maxDevices is clamped",
+			args: &Spec{
+				sr: &sharedRegionT{
+					num: 64,
+				},
+			},
+			want: maxDevices,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

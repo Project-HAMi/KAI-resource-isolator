@@ -55,7 +55,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{- define "kai-resource-isolator.monitor.fullname" -}}
-{{- printf "%s-monitor" (include "kai-resource-isolator.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- printf "%s-monitor" (include "kai-resource-isolator.fullname" . | trunc 55 | trimSuffix "-") -}}
 {{- end }}
 
 {{- define "kai-resource-isolator.renderImage" -}}

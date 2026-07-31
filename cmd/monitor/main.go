@@ -5,6 +5,8 @@ SPDX-License-Identifier: Apache-2.0
 kai-vgpu-monitor exposes HAMi-compatible per-container VRAM metrics on :9394.
 */
 
+// Package main implements kai-vgpu-monitor, which scrapes libvgpu shared-region
+// caches and NVML and exposes Prometheus metrics on :9394.
 package main
 
 import (
@@ -40,6 +42,9 @@ func main() {
 	updateInterval := flag.Duration("update-interval", 5*time.Second, "How often to rescan libvgpu cache directories")
 	klog.InitFlags(nil)
 	flag.Parse()
+	if *updateInterval <= 0 {
+		klog.Fatalf("update-interval must be positive")
+	}
 
 	if err := ValidateEnvVars(); err != nil {
 		klog.Fatalf("failed to validate environment variables: %v", err)
@@ -79,7 +84,14 @@ func main() {
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	srv := &http.Server{Addr: *metricsBindAddress, Handler: mux}
+	srv := &http.Server{
+		Addr:              *metricsBindAddress,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
 	go func() {
 		klog.Infof("kai-vgpu-monitor listening on %s", *metricsBindAddress)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {

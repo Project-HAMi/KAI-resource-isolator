@@ -63,23 +63,23 @@ func TestIsGPUSharingPod(t *testing.T) {
 	}
 }
 
-func TestParseCacheFileName(t *testing.T) {
+func TestParseCacheDirName(t *testing.T) {
 	tests := []struct {
 		name          string
-		file          string
+		dir           string
 		wantUID       string
 		wantContainer string
 		wantOK        bool
 	}{
-		{name: "simple", file: "abc-uid_cuda", wantUID: "abc-uid", wantContainer: "cuda", wantOK: true},
-		{name: "container with underscore", file: "abc-uid_my_ctr", wantUID: "abc-uid", wantContainer: "my_ctr", wantOK: true},
-		{name: "missing separator", file: "nouid", wantOK: false},
-		{name: "empty container", file: "uid_", wantOK: false},
-		{name: "empty uid", file: "_ctr", wantOK: false},
+		{name: "simple", dir: "abc-uid_cuda", wantUID: "abc-uid", wantContainer: "cuda", wantOK: true},
+		{name: "container with underscore", dir: "abc-uid_my_ctr", wantUID: "abc-uid", wantContainer: "my_ctr", wantOK: true},
+		{name: "missing separator", dir: "nouid", wantOK: false},
+		{name: "empty container", dir: "uid_", wantOK: false},
+		{name: "empty uid", dir: "_ctr", wantOK: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			uid, ctr, ok := parseCacheFileName(tt.file)
+			uid, ctr, ok := parseCacheDirName(tt.dir)
 			if ok != tt.wantOK {
 				t.Fatalf("ok=%v want %v", ok, tt.wantOK)
 			}
@@ -93,11 +93,14 @@ func TestParseCacheFileName(t *testing.T) {
 	}
 }
 
-// writeV1Cache writes a shared-region image the way libvgpu does: full region size,
-// with the header magic and version set once the region is initialised.
-// The header is little-endian, matching the x86_64/arm64 nodes this runs on.
-func writeV1Cache(t *testing.T, path string, initialized bool) {
+// writeV1UsageCache writes containers/{name}/usage.cache the way HAMi-core #219 does.
+func writeV1UsageCache(t *testing.T, containersRoot, dirName string, initialized bool) string {
 	t.Helper()
+	dir := filepath.Join(containersRoot, dirName)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatalf("failed to create cache dir: %v", err)
+	}
+	path := filepath.Join(dir, usageCacheFileName)
 	buf := make([]byte, v1.SpecSize())
 	if initialized {
 		binary.LittleEndian.PutUint32(buf[0:], uint32(SharedRegionMagicFlag))
@@ -107,6 +110,7 @@ func writeV1Cache(t *testing.T, path string, initialized bool) {
 	if err := os.WriteFile(path, buf, 0o600); err != nil {
 		t.Fatalf("failed to write cache image %s: %v", path, err)
 	}
+	return dir
 }
 
 func unmap(t *testing.T, usage *ContainerUsage) {
@@ -132,6 +136,7 @@ func newTestLister(t *testing.T, containerPath string, pods ...*corev1.Pod) *Con
 		containers:    make(map[string]*ContainerUsage),
 		nodeName:      "gpu-node-1",
 		podLister:     corelisters.NewPodLister(indexer),
+		stopCh:        make(chan struct{}),
 	}
 }
 
@@ -143,18 +148,18 @@ func podWithUID(uid string) *corev1.Pod {
 	}}
 }
 
-// TestLoadCacheFlatFile covers HAMi-core #219: libvgpu writes the shared region
-// directly to containers/{podUID}_{containerName}.
-func TestLoadCacheFlatFile(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "uid-1_trainer")
-	writeV1Cache(t, path, true)
+// TestLoadCacheDirUsageCache covers HAMi-core #219: libvgpu writes
+// containers/{podUID}_{containerName}/usage.cache.
+func TestLoadCacheDirUsageCache(t *testing.T) {
+	root := t.TempDir()
+	dir := writeV1UsageCache(t, root, "uid-1_trainer", true)
 
-	usage, err := loadCache(path)
+	usage, err := loadCacheDir(dir)
 	if err != nil {
-		t.Fatalf("loadCache() error = %v", err)
+		t.Fatalf("loadCacheDir() error = %v", err)
 	}
 	if usage == nil || usage.Info == nil {
-		t.Fatal("expected the flat cache file to be mapped")
+		t.Fatal("expected usage.cache to be mapped")
 	}
 	defer unmap(t, usage)
 
@@ -163,14 +168,21 @@ func TestLoadCacheFlatFile(t *testing.T) {
 	}
 }
 
-func TestLoadCacheNotReady(t *testing.T) {
+func TestLoadCacheDirNotReady(t *testing.T) {
 	root := t.TempDir()
 
-	uninitialized := filepath.Join(root, "uid-2_trainer")
-	writeV1Cache(t, uninitialized, false)
+	emptyDir := filepath.Join(root, "uid-1_trainer")
+	if err := os.MkdirAll(emptyDir, 0o700); err != nil {
+		t.Fatalf("failed to create cache dir: %v", err)
+	}
 
-	tooSmall := filepath.Join(root, "uid-3_trainer")
-	if err := os.WriteFile(tooSmall, []byte{1, 2}, 0o600); err != nil {
+	uninitialized := writeV1UsageCache(t, root, "uid-2_trainer", false)
+
+	tooSmallDir := filepath.Join(root, "uid-3_trainer")
+	if err := os.MkdirAll(tooSmallDir, 0o700); err != nil {
+		t.Fatalf("failed to create cache dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tooSmallDir, usageCacheFileName), []byte{1, 2}, 0o600); err != nil {
 		t.Fatalf("failed to write short cache file: %v", err)
 	}
 
@@ -178,14 +190,15 @@ func TestLoadCacheNotReady(t *testing.T) {
 		name string
 		path string
 	}{
+		{name: "directory without usage.cache", path: emptyDir},
 		{name: "cache file without magic", path: uninitialized},
-		{name: "cache file not sized yet", path: tooSmall},
+		{name: "cache file not sized yet", path: tooSmallDir},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			usage, err := loadCache(tt.path)
+			usage, err := loadCacheDir(tt.path)
 			if err != nil {
-				t.Fatalf("loadCache() error = %v, want nil so Update retries later", err)
+				t.Fatalf("loadCacheDir() error = %v, want nil so Update retries later", err)
 			}
 			if usage != nil {
 				unmap(t, usage)
@@ -195,38 +208,40 @@ func TestLoadCacheNotReady(t *testing.T) {
 	}
 }
 
-// TestLoadCacheTruncated guards the unsafe cast: a region shorter than the
+// TestLoadCacheDirTruncated guards the unsafe cast: a region shorter than the
 // struct must be rejected instead of read past the end of the mapping.
-func TestLoadCacheTruncated(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "uid-1_trainer")
+func TestLoadCacheDirTruncated(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "uid-1_trainer")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatalf("failed to create cache dir: %v", err)
+	}
 	buf := make([]byte, 4096)
 	binary.LittleEndian.PutUint32(buf[0:], uint32(SharedRegionMagicFlag))
 	binary.LittleEndian.PutUint32(buf[4:], 1)
-	if err := os.WriteFile(path, buf, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, usageCacheFileName), buf, 0o600); err != nil {
 		t.Fatalf("failed to write truncated cache: %v", err)
 	}
 
-	usage, err := loadCache(path)
+	usage, err := loadCacheDir(dir)
 	if usage != nil {
 		unmap(t, usage)
 		t.Fatal("expected a truncated cache to be rejected")
 	}
 	if err == nil || !strings.Contains(err.Error(), "shared region needs") {
-		t.Fatalf("loadCache() error = %v, want a truncated shared region error", err)
+		t.Fatalf("loadCacheDir() error = %v, want a truncated shared region error", err)
 	}
 }
 
-func TestUpdateDiscoversFlatCacheFiles(t *testing.T) {
+func TestUpdateDiscoversUsageCacheDirs(t *testing.T) {
 	root := t.TempDir()
-	writeV1Cache(t, filepath.Join(root, "uid-1_trainer"), true)
-	writeV1Cache(t, filepath.Join(root, "uid-2_sidecar"), true)
+	writeV1UsageCache(t, root, "uid-1_trainer", true)
+	writeV1UsageCache(t, root, "uid-2_sidecar", true)
 
-	// HAMi device-plugin directory layout must be ignored for KAI.
-	dir := filepath.Join(root, "uid-3_ignored")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatalf("failed to create cache dir: %v", err)
+	// Flat file from an older #219 draft must be ignored.
+	if err := os.WriteFile(filepath.Join(root, "uid-3_flat"), []byte("x"), 0o600); err != nil {
+		t.Fatalf("failed to write flat file: %v", err)
 	}
-	writeV1Cache(t, filepath.Join(dir, "GPU-0.cache"), true)
 	if err := os.WriteFile(filepath.Join(root, "not-a-cache"), []byte("x"), 0o600); err != nil {
 		t.Fatalf("failed to write unrelated file: %v", err)
 	}
@@ -262,15 +277,14 @@ func TestUpdateDiscoversFlatCacheFiles(t *testing.T) {
 }
 
 // TestUpdateRemovesOrphanCaches covers cleanup once the pod UID is gone and the
-// flat cache file is older than the resync grace window.
+// cache dir is older than the resync grace window.
 func TestUpdateRemovesOrphanCaches(t *testing.T) {
 	root := t.TempDir()
-	flat := filepath.Join(root, "uid-gone_trainer")
-	writeV1Cache(t, flat, true)
+	dir := writeV1UsageCache(t, root, "uid-gone_trainer", true)
 
 	stale := time.Now().Add(-2 * resyncInterval)
-	if err := os.Chtimes(flat, stale, stale); err != nil {
-		t.Fatalf("failed to age %s: %v", flat, err)
+	if err := os.Chtimes(dir, stale, stale); err != nil {
+		t.Fatalf("failed to age %s: %v", dir, err)
 	}
 
 	lister := newTestLister(t, root)
@@ -278,8 +292,8 @@ func TestUpdateRemovesOrphanCaches(t *testing.T) {
 		t.Fatalf("Update() error = %v", err)
 	}
 
-	if _, err := os.Stat(flat); !os.IsNotExist(err) {
-		t.Errorf("orphan cache %s still exists (stat err = %v)", flat, err)
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Errorf("orphan cache %s still exists (stat err = %v)", dir, err)
 	}
 	lister.WithContainers(func(containers map[string]*ContainerUsage) {
 		if len(containers) != 0 {
@@ -292,7 +306,7 @@ func TestUpdateRemovesOrphanCaches(t *testing.T) {
 // refresh ticker: reads must be serialised with Update, which unmaps entries.
 func TestUpdateConcurrentWithReads(t *testing.T) {
 	root := t.TempDir()
-	writeV1Cache(t, filepath.Join(root, "uid-1_trainer"), true)
+	writeV1UsageCache(t, root, "uid-1_trainer", true)
 	lister := newTestLister(t, root, podWithUID("uid-1"))
 	t.Cleanup(func() {
 		for name := range lister.containers {
@@ -324,4 +338,10 @@ func TestUpdateConcurrentWithReads(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestStopIdempotent(_ *testing.T) {
+	lister := &ContainerLister{stopCh: make(chan struct{})}
+	lister.Stop()
+	lister.Stop() // must not panic
 }

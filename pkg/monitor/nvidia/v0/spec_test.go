@@ -48,6 +48,7 @@ func TestSpec_DeviceNum(t *testing.T) {
 	tests := []specTest{
 		{name: "device num is 4", spec: &Spec{sr: &sharedRegionT{num: 4}}, expected: 4},
 		{name: "device num is 8", spec: &Spec{sr: &sharedRegionT{num: 8}}, expected: 8},
+		{name: "device num above maxDevices is clamped", spec: &Spec{sr: &sharedRegionT{num: 64}}, expected: maxDevices},
 	}
 
 	for _, tt := range tests {

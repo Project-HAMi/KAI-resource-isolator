@@ -74,18 +74,29 @@ type sharedRegionT struct {
 	priority          int32
 }
 
+// Spec overlays a mmap'd legacy shared_region_t.
 type Spec struct {
 	sr *sharedRegionT
 }
 
+// DeviceMax returns the fixed device-slot capacity of the shared region.
 func (s Spec) DeviceMax() int {
 	return maxDevices
 }
 
+// DeviceNum returns the number of devices recorded in the shared region, clamped to DeviceMax.
 func (s Spec) DeviceNum() int {
-	return int(s.sr.num)
+	n := int(s.sr.num)
+	if n > maxDevices {
+		return maxDevices
+	}
+	if n < 0 {
+		return 0
+	}
+	return n
 }
 
+// DeviceMemoryContextSize returns total context memory usage for device idx across all procs.
 func (s Spec) DeviceMemoryContextSize(idx int) uint64 {
 	v := uint64(0)
 	for _, p := range s.sr.procs {
@@ -94,6 +105,7 @@ func (s Spec) DeviceMemoryContextSize(idx int) uint64 {
 	return v
 }
 
+// DeviceMemoryModuleSize returns total module memory usage for device idx across all procs.
 func (s Spec) DeviceMemoryModuleSize(idx int) uint64 {
 	v := uint64(0)
 	for _, p := range s.sr.procs {
@@ -102,6 +114,7 @@ func (s Spec) DeviceMemoryModuleSize(idx int) uint64 {
 	return v
 }
 
+// DeviceMemoryBufferSize returns total buffer memory usage for device idx across all procs.
 func (s Spec) DeviceMemoryBufferSize(idx int) uint64 {
 	v := uint64(0)
 	for _, p := range s.sr.procs {
@@ -110,6 +123,7 @@ func (s Spec) DeviceMemoryBufferSize(idx int) uint64 {
 	return v
 }
 
+// DeviceMemoryOffset returns total memory offset for device idx across all procs.
 func (s Spec) DeviceMemoryOffset(idx int) uint64 {
 	v := uint64(0)
 	for _, p := range s.sr.procs {
@@ -118,6 +132,7 @@ func (s Spec) DeviceMemoryOffset(idx int) uint64 {
 	return v
 }
 
+// DeviceMemoryTotal returns total memory usage for device idx across all procs.
 func (s Spec) DeviceMemoryTotal(idx int) uint64 {
 	v := uint64(0)
 	for _, p := range s.sr.procs {
@@ -126,6 +141,7 @@ func (s Spec) DeviceMemoryTotal(idx int) uint64 {
 	return v
 }
 
+// DeviceSmUtil returns total SM utilization for device idx across all procs.
 func (s Spec) DeviceSmUtil(idx int) uint64 {
 	v := uint64(0)
 	for _, p := range s.sr.procs {
@@ -134,36 +150,39 @@ func (s Spec) DeviceSmUtil(idx int) uint64 {
 	return v
 }
 
+// SetDeviceSmLimit sets the SM limit for every active device slot.
 func (s Spec) SetDeviceSmLimit(l uint64) {
-	idx := uint64(0)
-	for idx < s.sr.num {
+	n := uint64(s.DeviceNum())
+	for idx := uint64(0); idx < n; idx++ {
 		s.sr.smLimit[idx] = l
-		idx += 1
 	}
 }
 
+// IsValidUUID reports whether device idx has a non-empty UUID.
 func (s Spec) IsValidUUID(idx int) bool {
 	return s.sr.uuids[idx].uuid[0] != 0
 }
 
+// DeviceUUID returns the raw UUID bytes for device idx as a string.
 func (s Spec) DeviceUUID(idx int) string {
 	return string(s.sr.uuids[idx].uuid[:])
 }
 
+// DeviceMemoryLimit returns the memory limit for device idx.
 func (s Spec) DeviceMemoryLimit(idx int) uint64 {
 	return s.sr.limit[idx]
 }
 
+// SetDeviceMemoryLimit sets the memory limit for every active device slot.
 func (s Spec) SetDeviceMemoryLimit(l uint64) {
-	idx := uint64(0)
-	for idx < s.sr.num {
+	n := uint64(s.DeviceNum())
+	for idx := uint64(0); idx < n; idx++ {
 		s.sr.limit[idx] = l
-		idx += 1
 	}
 }
 
+// LastKernelTime returns 0; the legacy layout has no lastKernelTime field.
 func (s Spec) LastKernelTime() int64 {
-	// Legacy layout has no lastKernelTime field.
 	return 0
 }
 
@@ -183,26 +202,27 @@ func CastSpec(data []byte) Spec {
 	}
 }
 
-//	func (s *SharedRegionT) UsedMemory(idx int) (uint64, error) {
-//		return 0, nil
-//	}
-
+// GetPriority returns the shared-region task priority.
 func (s Spec) GetPriority() int {
 	return int(s.sr.priority)
 }
 
+// GetRecentKernel returns the recent-kernel flag from the shared region.
 func (s Spec) GetRecentKernel() int32 {
 	return s.sr.recentKernel
 }
 
+// SetRecentKernel sets the recent-kernel flag in the shared region.
 func (s Spec) SetRecentKernel(v int32) {
 	s.sr.recentKernel = v
 }
 
+// GetUtilizationSwitch returns the utilization switch from the shared region.
 func (s Spec) GetUtilizationSwitch() int32 {
 	return s.sr.utilizationSwitch
 }
 
+// SetUtilizationSwitch sets the utilization switch in the shared region.
 func (s Spec) SetUtilizationSwitch(v int32) {
 	s.sr.utilizationSwitch = v
 }

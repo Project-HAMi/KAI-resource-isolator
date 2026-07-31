@@ -168,6 +168,41 @@ func TestCollectLastKernelElapsed(t *testing.T) {
 	}
 }
 
+func TestCollectSkipsInvalidUUID(t *testing.T) {
+	source := &fakeSource{containers: map[string]*nvidia.ContainerUsage{
+		"uid-1_trainer": {PodUID: "uid-1", ContainerName: "trainer", Info: &fakeUsage{
+			devices: 1, uuid: "",
+		}},
+	}}
+	reg := prometheus.NewRegistry()
+	NewClusterManager("vGPU", reg, source, podLister(t, gpuSharingPod("uid-1", "trainer")), false)
+
+	families := gather(t, reg)
+	for _, name := range containerMetricNames {
+		if samples, ok := families[name]; ok {
+			t.Errorf("metric %s was collected with %d samples, want none for empty UUID", name, len(samples))
+		}
+	}
+}
+
+func TestCollectDoesNotPanicOnHighDeviceNum(t *testing.T) {
+	// Spec overlays clamp DeviceNum(); this checks the collector tolerates a
+	// UsageInfo that still reports more than 16 devices without panicking.
+	source := &fakeSource{containers: map[string]*nvidia.ContainerUsage{
+		"uid-1_trainer": {PodUID: "uid-1", ContainerName: "trainer", Info: &fakeUsage{
+			devices: 20, uuid: validUUID, total: 1 << 20,
+		}},
+	}}
+	reg := prometheus.NewRegistry()
+	NewClusterManager("vGPU", reg, source, podLister(t, gpuSharingPod("uid-1", "trainer")), false)
+
+	families := gather(t, reg)
+	samples := families["hami_vgpu_memory_used_bytes"]
+	if len(samples) != 20 {
+		t.Fatalf("expected 20 device series from fakeUsage, got %d", len(samples))
+	}
+}
+
 func TestCollectSkipsUnrelatedCaches(t *testing.T) {
 	tests := []struct {
 		name       string

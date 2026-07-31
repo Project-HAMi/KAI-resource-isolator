@@ -61,7 +61,7 @@ Requirements for per-container series:
 | Webhook injection of those env vars plus the `containers/` hostPath mount | Without it the cache stays inside the container and only host GPU gauges are exported |
 | A container that has called `cuInit` | The cache is created on first CUDA use |
 
-Cache layout matches [HAMi-core #219](https://github.com/Project-HAMi/HAMi-core/pull/219): a single shared-region file at `{containerVgpuMount}/containers/{podUID}_{containerName}` (not a directory).
+Cache layout matches [HAMi-core #219](https://github.com/Project-HAMi/HAMi-core/pull/219): `{containerVgpuMount}/containers/{podUID}_{containerName}/usage.cache`.
 
 ## Customization
 

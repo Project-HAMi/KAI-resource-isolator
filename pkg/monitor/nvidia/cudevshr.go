@@ -6,6 +6,8 @@ SPDX-License-Identifier: Apache-2.0
 Ported from Project-HAMi/HAMi pkg/monitor/nvidia/cudevshr.go for kai-vgpu-monitor.
 */
 
+// Package nvidia scans libvgpu shared-region caches on the node and correlates
+// them with KAI GPU-sharing pods for kai-vgpu-monitor.
 package nvidia
 
 import (
@@ -42,10 +44,12 @@ const (
 	// (usually via fieldRef spec.nodeName on the DaemonSet).
 	NodeNameEnvName = "NODE_NAME"
 
-	// KAI GPU-sharing pod annotation keys (see KAI-Scheduler constants).
-	// Presence of either marks the pod as in-scope for container metrics.
+	// GPUFractionAnnotation is the KAI annotation for a fractional GPU request.
+	// Presence marks the pod as in-scope for container metrics.
 	GPUFractionAnnotation = "gpu-fraction"
-	GPUMemoryAnnotation   = "gpu-memory"
+	// GPUMemoryAnnotation is the KAI annotation for a GPU memory request (MiB).
+	// Presence marks the pod as in-scope for container metrics.
+	GPUMemoryAnnotation = "gpu-memory"
 
 	// legacyV0CacheSize is the exact file size written by pre-versioned libvgpu
 	// (sizeof(shared_region_t) plus the trailing byte from lseek+write).
@@ -94,8 +98,7 @@ type ContainerUsage struct {
 }
 
 // ContainerLister tracks per-container caches under {mount}/containers/.
-// Layout matches HAMi-core #219: one shared-region file per container at
-// {mount}/containers/{podUID}_{containerName} (not a directory).
+// Layout matches HAMi-core #219: {mount}/containers/{podUID}_{containerName}/usage.cache
 type ContainerLister struct {
 	containerPath string
 	containers    map[string]*ContainerUsage
@@ -108,10 +111,11 @@ type ContainerLister struct {
 	podLister       corelisters.PodLister
 	podListerSynced cache.InformerSynced
 	stopCh          chan struct{}
+	stopOnce        sync.Once
 }
 
 // resyncInterval is the pod-informer resync period and the grace window before
-// deleting orphan cache files whose pod UID is gone. Override with HAMI_RESYNC_INTERVAL.
+// deleting orphan cache dirs whose pod UID is gone. Override with HAMI_RESYNC_INTERVAL.
 var resyncInterval = 5 * time.Minute
 
 func init() {
@@ -154,12 +158,12 @@ func IsGPUSharingPod(pod *corev1.Pod) bool {
 	return false
 }
 
-// NewContainerLister builds a node-scoped lister that scans libvgpu cache files.
+// NewContainerLister builds a node-scoped lister that scans libvgpu cache dirs.
 //
 // Pay attention:
 //   - Blocks until the pod informer syncs (needs RBAC pods get/list/watch).
 //   - Empty KUBECONFIG uses in-cluster config.
-//   - Call Stop() on shutdown; Stop closes the informer stopCh once only.
+//   - Call Stop() on shutdown; Stop is idempotent (sync.Once).
 func NewContainerLister() (*ContainerLister, error) {
 	mountPath, err := MountPath()
 	if err != nil {
@@ -190,6 +194,7 @@ func NewContainerLister() (*ContainerLister, error) {
 	}
 
 	if err := lister.initInformerWithConfig(resyncInterval); err != nil {
+		lister.Stop()
 		return nil, err
 	}
 
@@ -223,17 +228,20 @@ func (l *ContainerLister) NodeName() string {
 	return l.nodeName
 }
 
-// Stop stops the pod informer. Must not be called twice (closes stopCh).
+// Stop stops the pod informer. Safe to call more than once.
 func (l *ContainerLister) Stop() {
-	close(l.stopCh)
+	l.stopOnce.Do(func() {
+		close(l.stopCh)
+	})
 }
 
-// Update rescans host cache files, mmaps new ones, and deletes stale ones.
+// Update rescans host cache directories, mmaps new ones, and deletes stale ones.
 //
 // Pay attention:
-//   - Only regular files named {podUID}_{containerName} are considered (HAMi-core #219).
-//     Directories are skipped; that is the HAMi device-plugin layout, not KAI's.
-//   - Orphan files (pod UID gone) are removed after resyncInterval grace.
+//   - Only directories named {podUID}_{containerName} are considered (HAMi-core #219).
+//     Bare files at that path are skipped.
+//   - The shared region is read from {dir}/usage.cache.
+//   - Orphan dirs (pod UID gone) are removed after resyncInterval grace.
 //   - Existing map entries are not reloaded; values update via shared mmap.
 //   - Safe to call from the ticker and from Collect concurrently (mutex).
 func (l *ContainerLister) Update() error {
@@ -256,32 +264,32 @@ func (l *ContainerLister) Update() error {
 	}
 
 	for _, entry := range entries {
-		if entry.IsDir() {
-			klog.V(4).Infof("Skipping directory %q; KAI expects a flat cache file (HAMi-core #219)", entry.Name())
+		if !entry.IsDir() {
+			klog.V(4).Infof("Skipping non-directory %q; KAI expects containers/{uid}_{name}/usage.cache (HAMi-core #219)", entry.Name())
 			continue
 		}
-		entryPath := filepath.Join(l.containerPath, entry.Name())
-		podUID, containerName, ok := parseCacheFileName(entry.Name())
+		dirPath := filepath.Join(l.containerPath, entry.Name())
+		podUID, containerName, ok := parseCacheDirName(entry.Name())
 		if !ok {
-			klog.V(4).Infof("Skipping cache file with unexpected name %q", entry.Name())
+			klog.V(4).Infof("Skipping cache dir with unexpected name %q", entry.Name())
 			continue
 		}
 		if !podUIDs[podUID] {
-			entryInfo, err := os.Stat(entryPath)
-			if err == nil && entryInfo.ModTime().Add(resyncInterval).After(time.Now()) {
+			dirInfo, err := os.Stat(dirPath)
+			if err == nil && dirInfo.ModTime().Add(resyncInterval).After(time.Now()) {
 				continue
 			}
-			klog.Infof("Removing %s in monitorpath, pod %s is gone", entryPath, podUID)
+			klog.Infof("Removing %s in monitorpath, pod %s is gone", dirPath, podUID)
 			l.dropContainer(entry.Name())
-			_ = os.Remove(entryPath)
+			_ = os.RemoveAll(dirPath)
 			continue
 		}
 		if _, ok := l.containers[entry.Name()]; ok {
 			continue
 		}
-		usage, err := loadCache(entryPath)
+		usage, err := loadCacheDir(dirPath)
 		if err != nil {
-			klog.Errorf("Failed to load cache: %s, error: %v", entryPath, err)
+			klog.Errorf("Failed to load cache: %s, error: %v", dirPath, err)
 			continue
 		}
 		if usage == nil {
@@ -291,7 +299,7 @@ func (l *ContainerLister) Update() error {
 		usage.PodUID = podUID
 		usage.ContainerName = containerName
 		l.containers[entry.Name()] = usage
-		klog.Infof("Adding ctr cache %s in monitorpath", entryPath)
+		klog.Infof("Adding ctr cache %s in monitorpath", dirPath)
 	}
 	return nil
 }
@@ -308,10 +316,10 @@ func (l *ContainerLister) dropContainer(name string) {
 	}
 }
 
-// parseCacheFileName splits "{podUID}_{containerName}" on the first underscore.
+// parseCacheDirName splits "{podUID}_{containerName}" on the first underscore.
 // Container names that contain "_" are preserved (SplitN 2). Returns ok=false
 // if the name has no separator or empty parts.
-func parseCacheFileName(name string) (podUID, containerName string, ok bool) {
+func parseCacheDirName(name string) (podUID, containerName string, ok bool) {
 	parts := strings.SplitN(name, "_", 2)
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return "", "", false
@@ -319,8 +327,25 @@ func parseCacheFileName(name string) (podUID, containerName string, ok bool) {
 	return parts[0], parts[1], true
 }
 
-// loadCache mmaps one shared-region file at {mount}/containers/{podUID}_{containerName}
-// (HAMi-core #219) and selects the v0/v1 overlay.
+const usageCacheFileName = "usage.cache"
+
+// loadCacheDir mmaps {dirPath}/usage.cache (HAMi-core #219) and selects the v0/v1 overlay.
+// Returns (nil, nil) when the file is missing or not yet initialised (normal before cuInit).
+func loadCacheDir(dirPath string) (*ContainerUsage, error) {
+	cacheFile := filepath.Join(dirPath, usageCacheFileName)
+	info, err := os.Stat(cacheFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			klog.V(4).Infof("No %s in %s yet", usageCacheFileName, dirPath)
+			return nil, nil
+		}
+		klog.Errorf("Failed to stat cache file: %s, error: %v", cacheFile, err)
+		return nil, err
+	}
+	return loadCacheFile(cacheFile, info)
+}
+
+// loadCacheFile mmaps one shared-region file and selects the v0/v1 overlay.
 //
 // Pay attention:
 //   - Returns (nil, nil) while libvgpu has created the file but not yet written the
@@ -328,12 +353,7 @@ func parseCacheFileName(name string) (podUID, containerName string, ok bool) {
 //   - Needs PROT_WRITE|MAP_SHARED and typically SYS_ADMIN/privileged for mmap.
 //   - Size legacyV0CacheSize → v0, else majorVersion 1 → v1; the mapping must cover
 //     the whole shared region before casting.
-func loadCache(cacheFile string) (*ContainerUsage, error) {
-	info, err := os.Stat(cacheFile)
-	if err != nil {
-		klog.Errorf("Failed to stat cache file: %s, error: %v", cacheFile, err)
-		return nil, err
-	}
+func loadCacheFile(cacheFile string, info os.FileInfo) (*ContainerUsage, error) {
 	if info.Size() < int64(unsafe.Sizeof(headerT{})) {
 		klog.V(4).Infof("Cache file %s is %d bytes, libvgpu has not sized it yet", cacheFile, info.Size())
 		return nil, nil
@@ -401,9 +421,11 @@ func (l *ContainerLister) initInformerWithConfig(resyncInterval time.Duration) e
 	l.podLister = podInformer.Lister()
 	l.podListerSynced = l.podInformer.HasSynced
 
-	l.podInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	if _, err := l.podInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		DeleteFunc: l.onPodDelete,
-	})
+	}); err != nil {
+		return fmt.Errorf("failed to add pod informer event handler: %w", err)
+	}
 
 	l.informerFactory.Start(l.stopCh)
 

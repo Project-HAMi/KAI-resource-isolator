@@ -222,7 +222,11 @@ func (cc ClusterManagerCollector) collectGPUInfo(ch chan<- prometheus.Metric) er
 	if err := cc.initNVML(); err != nil {
 		return err
 	}
-	defer nvml.Shutdown()
+	defer func() {
+		if ret := nvml.Shutdown(); ret != nvml.SUCCESS {
+			klog.Errorf("nvml Shutdown err: %s", nvml.ErrorString(ret))
+		}
+	}()
 
 	devnum, err := cc.getDeviceCount()
 	if err != nil {
@@ -413,12 +417,14 @@ func (cc ClusterManagerCollector) collectContainerMetrics(ch chan<- prometheus.M
 	}
 
 	for i := range c.Info.DeviceNum() {
-		uuid := c.Info.DeviceUUID(i)
-		if len(uuid) < 40 {
-			klog.Errorf("Invalid UUID length for device %d in Pod %s/%s, Container %s", i, pod.Namespace, pod.Name, ctr.Name)
-			return fmt.Errorf("invalid UUID length for device %d", i)
+		if !c.Info.IsValidUUID(i) {
+			klog.V(5).Infof("Device %d in Pod %s/%s, Container %s has no UUID yet; skipping until next scrape", i, pod.Namespace, pod.Name, ctr.Name)
+			continue
 		}
-		uuid = uuid[0:40]
+		uuid := c.Info.DeviceUUID(i)
+		if len(uuid) > 40 {
+			uuid = uuid[:40]
+		}
 		if !utf8.ValidString(uuid) {
 			klog.Warningf("Device %d in Pod %s/%s, Container %s has invalid UTF-8 UUID (shared memory not yet initialised); skipping until next scrape", i, pod.Namespace, pod.Name, ctr.Name)
 			continue
