@@ -12,5 +12,16 @@ spec:
     - {{ include "kai-resource-isolator.webhook.fullname" . }}.{{ include "kai-resource-isolator.namespace" . }}.svc
     - {{ include "kai-resource-isolator.webhook.fullname" . }}.{{ include "kai-resource-isolator.namespace" . }}.svc.cluster.local
   issuerRef:
-    {{- toYaml .Values.tls.certManager.issuerRef | nindent 4 }}
+    kind: Issuer
+    name: {{ include "kai-resource-isolator.fullname" . }}-selfsigned-issuer
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "kai-resource-isolator.fullname" . }}-selfsigned-issuer
+  namespace: {{ include "kai-resource-isolator.namespace" . }}
+  labels:
+    {{- include "kai-resource-isolator.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
 {{- end }}

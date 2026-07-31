@@ -48,12 +48,9 @@ webhook:
 
 tls:
   ## When cert-manager is enabled, set patch.enabled to false.
+  ## Creates a namespaced self-signed Issuer + Certificate.
   certManager:
     enabled: false
-    createSelfSignedClusterIssuer: true
-    issuerRef:
-      kind: ClusterIssuer
-      name: selfsigned
   patch:
     enabled: true
     image:
