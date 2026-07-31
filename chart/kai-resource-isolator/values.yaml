@@ -4,6 +4,7 @@ fullnameOverride: ""
 namespaceOverride: ""
 
 global:
+  ## Overrides image-specific registries for all chart-managed images when set.
   imageRegistry: ""
   imagePullSecrets: []
 
