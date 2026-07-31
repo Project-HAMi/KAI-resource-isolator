@@ -1,4 +1,4 @@
-{{- if and .Values.tls.patch.enabled (not .Values.tls.certManager.enabled) }}
+{{- if and .Values.rbac.create .Values.tls.patch.enabled (not .Values.tls.certManager.enabled) }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -9,14 +9,7 @@ metadata:
   labels:
     {{- include "kai-resource-isolator.labels" . | nindent 4 }}
 rules:
-  - apiGroups:
-      - ""
-    resources:
-      - secrets
-    verbs:
-      - get
-      - create
-      - update
+  ## Cluster-scoped: patch Job injects CA into this MutatingWebhookConfiguration only.
   - apiGroups:
       - admissionregistration.k8s.io
     resources:
@@ -24,4 +17,6 @@ rules:
     verbs:
       - get
       - update
+    resourceNames:
+      - {{ include "kai-resource-isolator.webhook.configName" . }}
 {{- end }}

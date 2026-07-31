@@ -28,6 +28,8 @@ spec:
     spec:
       {{- include "kai-resource-isolator.pullSecrets" . | nindent 6 }}
       serviceAccountName: {{ include "kai-resource-isolator.webhook.fullname" . }}
+      ## Webhook binary does not call the Kubernetes API; TLS comes from a mounted Secret.
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
