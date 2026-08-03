@@ -72,7 +72,7 @@ Because this chart installs a `MutatingWebhookConfiguration`, the webhook server
 | Mode | Values | Requires |
 |---|---|---|
 | Helm hook (default) | `tls.patch.enabled: true` | Nothing — a Job auto-generates a self-signed cert and patches the webhook CA bundle |
-| cert-manager | `tls.certManager.enabled: true` + `tls.patch.enabled: false` | [cert-manager](https://cert-manager.io/) installed in the cluster |
+| cert-manager | `tls.certManager.enabled: true` + `tls.patch.enabled: false` | [cert-manager](https://cert-manager.io/) installed in the cluster. Chart creates a namespaced self-signed `Issuer` and `Certificate` |
 
 ## Design
 
