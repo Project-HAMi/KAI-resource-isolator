@@ -15,3 +15,12 @@ Kai resource isolator is installed in namespace {{ include "kai-resource-isolato
 
    Opt-out a pod: annotation kai-resource-isolator.io/inject: "false"
    Opt-out a namespace: label kai-resource-isolator.io/webhook=ignore
+
+{{- if .Values.monitor.enabled }}
+
+4) Per-container VRAM metrics (hami_*):
+
+   kubectl -n {{ include "kai-resource-isolator.namespace" . }} get daemonset {{ include "kai-resource-isolator.monitor.fullname" . }}
+   kubectl -n {{ include "kai-resource-isolator.namespace" . }} port-forward svc/{{ include "kai-resource-isolator.monitor.fullname" . }} {{ .Values.monitor.service.port }}:{{ .Values.monitor.service.port }}
+   curl -s localhost:{{ .Values.monitor.service.port }}/metrics | grep hami_vgpu_memory
+{{- end }}

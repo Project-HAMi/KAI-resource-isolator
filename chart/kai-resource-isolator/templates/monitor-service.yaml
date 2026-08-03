@@ -1,0 +1,27 @@
+{{- if .Values.monitor.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kai-resource-isolator.monitor.fullname" . }}
+  namespace: {{ include "kai-resource-isolator.namespace" . }}
+  labels:
+    app.kubernetes.io/component: kai-vgpu-monitor
+    {{- include "kai-resource-isolator.labels" . | nindent 4 }}
+    {{- with .Values.monitor.service.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.monitor.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.monitor.service.type }}
+  ports:
+    - name: metrics
+      port: {{ .Values.monitor.service.port }}
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    app.kubernetes.io/component: kai-vgpu-monitor
+    {{- include "kai-resource-isolator.selectorLabels" . | nindent 4 }}
+{{- end }}

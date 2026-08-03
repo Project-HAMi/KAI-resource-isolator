@@ -1,0 +1,101 @@
+{{- if .Values.monitor.enabled }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "kai-resource-isolator.monitor.fullname" . }}
+  namespace: {{ include "kai-resource-isolator.namespace" . }}
+  labels:
+    app.kubernetes.io/component: kai-vgpu-monitor
+    {{- include "kai-resource-isolator.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: kai-vgpu-monitor
+      {{- include "kai-resource-isolator.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: kai-vgpu-monitor
+        kai-resource-isolator.io/webhook: ignore
+        {{- include "kai-resource-isolator.selectorLabels" . | nindent 8 }}
+        {{- with .Values.monitor.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.monitor.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- include "kai-resource-isolator.pullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "kai-resource-isolator.monitor.fullname" . }}
+      priorityClassName: {{ .Values.monitor.priorityClassName | quote }}
+      {{- with .Values.monitor.runtimeClassName }}
+      runtimeClassName: {{ . | quote }}
+      {{- end }}
+      containers:
+        - name: monitor
+          image: {{ include "kai-resource-isolator.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /monitor
+            - --metrics-bind-address=:{{ .Values.monitor.metricsPort }}
+            - --update-interval={{ .Values.monitor.updateInterval }}
+            {{- if .Values.monitor.legacyMetrics }}
+            - --legacy-metrics=true
+            {{- end }}
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: CONTAINER_VGPU_MOUNT
+              value: {{ .Values.paths.containerVgpuMount | quote }}
+            - name: HOOK_PATH
+              value: {{ .Values.paths.containerVgpuMount | quote }}
+            - name: HAMI_RESYNC_INTERVAL
+              value: {{ .Values.monitor.resyncInterval | quote }}
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: "all"
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.monitor.metricsPort }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          securityContext:
+            privileged: true
+            runAsUser: 0
+            allowPrivilegeEscalation: true
+            capabilities:
+              add: ["SYS_ADMIN"]
+          volumeMounts:
+            - name: containers
+              mountPath: {{ .Values.paths.containerVgpuMount }}/containers
+          {{- with .Values.monitor.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: containers
+          hostPath:
+            path: {{ .Values.paths.containerVgpuMount }}/containers
+            type: DirectoryOrCreate
+      {{- with .Values.monitor.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.monitor.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

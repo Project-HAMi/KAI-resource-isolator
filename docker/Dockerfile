@@ -6,18 +6,22 @@ WORKDIR /build/libvgpu
 COPY libvgpu/ ./
 RUN bash ./build.sh && test -f /build/libvgpu/build/libvgpu.so
 
-# Stage 2: Build webhook
-FROM golang:1.25-bookworm AS webhook-builder
+# Stage 2: Build Go binaries (webhook + monitor)
+FROM golang:1.25-bookworm AS go-builder
+RUN apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /webhook ./cmd/webhook
+# go-nvml requires CGO for generated bindings; libnvidia-ml is dlopened at runtime.
+RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /monitor ./cmd/monitor
 
 # Stage 3: Final image
 FROM ubuntu:24.04
 RUN groupadd --system nonroot && useradd --system --gid nonroot --uid 65532 --no-create-home nonroot
 COPY --from=libvgpu-builder /build/libvgpu/build/libvgpu.so /artifacts/libvgpu.so
-COPY --from=webhook-builder /webhook /webhook
+COPY --from=go-builder /webhook /webhook
+COPY --from=go-builder /monitor /monitor
 USER nonroot:nonroot
 ENTRYPOINT ["/webhook"]
