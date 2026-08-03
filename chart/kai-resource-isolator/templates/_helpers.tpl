@@ -72,21 +72,21 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "kai-resource-isolator.image" -}}
 {{- $img := .Values.image -}}
 {{- $global := .Values.global.imageRegistry -}}
-{{- $reg := default $global $img.registry -}}
+{{- $reg := default $img.registry $global -}}
 {{- include "kai-resource-isolator.renderImage" (dict "registry" $reg "repository" $img.repository "tag" $img.tag) -}}
 {{- end }}
 
 {{- define "kai-resource-isolator.patch.imageLegacy" -}}
 {{- $img := .Values.tls.patch.image -}}
 {{- $global := .Values.global.imageRegistry -}}
-{{- $reg := default $global $img.registry -}}
+{{- $reg := default $img.registry $global -}}
 {{- include "kai-resource-isolator.renderImage" (dict "registry" $reg "repository" $img.repository "tag" $img.tag) -}}
 {{- end }}
 
 {{- define "kai-resource-isolator.patch.imageNew" -}}
 {{- $img := .Values.tls.patch.imageNew -}}
 {{- $global := .Values.global.imageRegistry -}}
-{{- $reg := default $global $img.registry -}}
+{{- $reg := default $img.registry $global -}}
 {{- include "kai-resource-isolator.renderImage" (dict "registry" $reg "repository" $img.repository "tag" $img.tag) -}}
 {{- end }}
 
