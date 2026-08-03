@@ -1,19 +1,22 @@
 {{- if and .Values.rbac.create .Values.tls.patch.enabled (not .Values.tls.certManager.enabled) }}
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
+kind: Role
 metadata:
   name: {{ include "kai-resource-isolator.fullname" . }}-admission
+  namespace: {{ include "kai-resource-isolator.namespace" . }}
   annotations:
     "helm.sh/hook": pre-install,pre-upgrade,post-install,post-upgrade
     "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
   labels:
     {{- include "kai-resource-isolator.labels" . | nindent 4 }}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: {{ include "kai-resource-isolator.fullname" . }}-admission
-subjects:
-  - kind: ServiceAccount
-    name: {{ include "kai-resource-isolator.fullname" . }}-admission
-    namespace: {{ include "kai-resource-isolator.namespace" . }}
+rules:
+  ## Namespaced: create Job get-or-creates the webhook TLS Secret; patch Job reads the CA.
+  ## Matches HAMi job-patch Role (secrets stay out of ClusterRole).
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+      - create
 {{- end }}

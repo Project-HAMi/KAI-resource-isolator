@@ -110,5 +110,7 @@ service:
   type: ClusterIP
   port: 443
 
+## RBAC for kube-webhook-certgen Helm hook Jobs only (not the webhook Deployment).
+## When true (default), creates namespaced Role for secrets + ClusterRole for MutatingWebhookConfiguration.
 rbac:
   create: true
