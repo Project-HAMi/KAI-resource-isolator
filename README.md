@@ -22,12 +22,16 @@ helm install kai-scheduler oci://ghcr.io/nvidia/kai-scheduler \
 Install directly from the OCI registry:
 
 ```bash
-helm install kai-resource-isolator oci://docker.io/projecthami/kai-resource-isolator \
+helm upgrade --install kai-resource-isolator oci://docker.io/projecthami/kai-resource-isolator \
   --namespace kai-resource-isolator --create-namespace \
-  --version 1.0.0-chart
+  --set monitor.enabled=true \
+  --set monitor.serviceMonitor.enabled=true \
+  --version 1.1.0-chart
 ```
 
-Note: Chart versions carry a `-chart` suffix (e.g. `1.0.0-chart`). Available versions are listed at [projecthami/kai-resource-isolator](https://hub.docker.com/r/projecthami/kai-resource-isolator/tags) on Docker Hub.
+The default `monitor.nodeSelector` is `nvidia.com/gpu.present: "true"` (NVIDIA GPU feature discovery). Set `monitor.runtimeClassName=nvidia` if NVML is only available through the NVIDIA runtime handler in your cluster.
+
+Note: Chart versions carry a `-chart` suffix (e.g. `1.1.0-chart`). Available versions are listed at [projecthami/kai-resource-isolator](https://hub.docker.com/r/projecthami/kai-resource-isolator/tags) on Docker Hub.
 
 ## Build
 
@@ -45,17 +49,6 @@ docker build -f docker/Dockerfile -t <registry>/<project>/kai-resource-isolator:
 ```
 curl {pod ip}:9394/metrics
 ```
-
-It is disabled by default because it runs privileged and needs NVML. Enable it on GPU nodes:
-
-```bash
-helm upgrade --install kai-resource-isolator oci://docker.io/projecthami/kai-resource-isolator \
-  --namespace kai-resource-isolator --create-namespace \
-  --set monitor.enabled=true \
-  --set monitor.serviceMonitor.enabled=true
-```
-
-The default `monitor.nodeSelector` is `nvidia.com/gpu.present: "true"` (NVIDIA GPU feature discovery). Set `monitor.runtimeClassName=nvidia` if NVML is only available through the NVIDIA runtime handler in your cluster.
 
 ## Customization
 
