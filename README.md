@@ -40,7 +40,11 @@ docker build -f docker/Dockerfile -t <registry>/<project>/kai-resource-isolator:
 
 ## Per-container VRAM metrics (optional)
 
-`kai-vgpu-monitor` is a DaemonSet that reads the shared-memory cache `libvgpu.so` writes for each GPU container and exposes HAMi-compatible gauges (`hami_vgpu_memory_used_bytes`, `hami_vgpu_memory_limit_bytes`, `hami_container_device_utilization_ratio`, …) on `:9394/metrics`, so existing HAMi Grafana dashboards work unchanged.
+`kai-vgpu-monitor` is a DaemonSet that reads the shared-memory cache `libvgpu.so` writes for each GPU container and exposes HAMi-compatible gauges (`hami_vgpu_memory_used_bytes`, `hami_vgpu_memory_limit_bytes`, `hami_container_device_utilization_ratio`, …) by using
+
+```
+curl {pod ip}:9394/metrics
+```
 
 It is disabled by default because it runs privileged and needs NVML. Enable it on GPU nodes:
 
@@ -53,26 +57,9 @@ helm upgrade --install kai-resource-isolator oci://docker.io/projecthami/kai-res
 
 The default `monitor.nodeSelector` is `nvidia.com/gpu.present: "true"` (NVIDIA GPU feature discovery). Set `monitor.runtimeClassName=nvidia` if NVML is only available through the NVIDIA runtime handler in your cluster.
 
-Requirements for per-container series:
-
-| Requirement | Why |
-|---|---|
-| A `libvgpu.so` build that derives its cache path from `CONTAINER_VGPU_MOUNT`, `POD_UID` and `CONTAINER_NAME` ([HAMi-core #219](https://github.com/Project-HAMi/HAMi-core/pull/219)) | Puts the cache on a host path the monitor can read |
-| Webhook injection of those env vars plus the `containers/` hostPath mount | Without it the cache stays inside the container and only host GPU gauges are exported |
-| A container that has called `cuInit` | The cache is created on first CUDA use |
-
-Cache layout matches [HAMi-core #219](https://github.com/Project-HAMi/HAMi-core/pull/219): `{containerVgpuMount}/containers/{podUID}_{containerName}/usage.cache`.
-
 ## Customization
 
 Tune `paths.containerVgpuMount` and `webhook.gpuShareResources` for your environment and HAMi extended resource names.
-
-Because this chart installs a `MutatingWebhookConfiguration`, the webhook server requires a valid TLS certificate. The chart ships with two modes:
-
-| Mode | Values | Requires |
-|---|---|---|
-| Helm hook (default) | `tls.patch.enabled: true` | Nothing — a Job auto-generates a self-signed cert and patches the webhook CA bundle |
-| cert-manager | `tls.certManager.enabled: true` + `tls.patch.enabled: false` | [cert-manager](https://cert-manager.io/) installed in the cluster. Chart creates a namespaced self-signed `Issuer` and `Certificate` |
 
 ## Design
 
