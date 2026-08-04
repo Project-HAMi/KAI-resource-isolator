@@ -47,7 +47,7 @@ git submodule update --init --recursive
 docker build -f docker/Dockerfile -t <registry>/<project>/kai-resource-isolator:<tag> .
 ```
 
-## Per-container VRAM metrics (optional)
+## Per-container VRAM metrics
 
 `kai-vgpu-monitor` is a DaemonSet that reads the shared-memory cache `libvgpu.so` writes for each GPU container and exposes HAMi-compatible gauges (`hami_vgpu_memory_used_bytes`, `hami_vgpu_memory_limit_bytes`, `hami_container_device_utilization_ratio`, …) by using
 
