@@ -22,7 +22,7 @@ helm install kai-scheduler oci://ghcr.io/nvidia/kai-scheduler \
 Install directly from the OCI registry:
 
 ```bash
-helm upgrade --install kai-resource-isolator oci://docker.io/projecthami/kai-resource-isolator \
+helm install kai-resource-isolator oci://docker.io/projecthami/kai-resource-isolator \
   --namespace kai-resource-isolator --create-namespace \
   --set monitor.enabled=true \
   --set monitor.serviceMonitor.enabled=true \
