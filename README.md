@@ -4,6 +4,10 @@
 
 For architecture details see the [Design](#design) section.
 
+## Prequisities
+
+- **KAI-scheduler Version**: ≥ 0.17.0
+
 ## Quick Start
 
 ### 1. Deploy KAI-Scheduler with GPU sharing enabled
@@ -11,10 +15,11 @@ For architecture details see the [Design](#design) section.
 Follow the [KAI-Scheduler deployment guide](https://github.com/NVIDIA/KAI-Scheduler/blob/main/docs/gpu-sharing/gpu-sharing.md) and enable `gpushare` and `hamicore`:
 
 ```bash
-helm install kai-scheduler oci://ghcr.io/nvidia/kai-scheduler \
+helm install kai-scheduler oci://ghcr.io/kai-scheduler/kai-scheduler/kai-scheduler \
   --set global.gpuSharing=true \
   --set binder.plugins.hamicore.enabled=true \
-  --namespace kai-scheduler --create-namespace
+  --namespace kai-scheduler --create-namespace \
+  --version v0.17.0
 ```
 
 ### 2. Deploy kai-resource-isolator
