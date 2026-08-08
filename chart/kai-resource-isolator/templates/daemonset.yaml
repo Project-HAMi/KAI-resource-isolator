@@ -38,10 +38,13 @@ spec:
             - |
               set -e
               DST="/host-root{{ .Values.paths.containerVgpuMount }}"
-              mkdir -p "${DST}"
+              mkdir -p "${DST}/containers" /host-root/tmp/vgpulock
               cp -f /artifacts/libvgpu.so "${DST}/libvgpu.so"
               cp -f /config/ld.so.preload "${DST}/ld.so.preload"
               chmod 0644 "${DST}/libvgpu.so" "${DST}/ld.so.preload"
+              # Workload containers often run as non-root (e.g. e2e UID 1000);
+              # libvgpu must be able to mkdir {POD_UID}_{CONTAINER_NAME} here.
+              chmod 1777 "${DST}/containers" /host-root/tmp/vgpulock
               echo "HAMi lib sync installed under ${DST}"
               exec sleep infinity
           securityContext:
