@@ -57,7 +57,7 @@ flowchart TD
 
 ### 1. Deploy KAI-Scheduler with GPU sharing enabled
 
-Follow the [KAI-Scheduler GPU-sharing guide](https://github.com/NVIDIA/KAI-Scheduler/blob/main/docs/gpu-sharing/gpu-sharing.md) and enable the `gpushare` and `hamicore` plugins:
+Follow the [KAI-Scheduler GPU-sharing guide](https://github.com/kai-scheduler/KAI-Scheduler/blob/main/docs/gpu-sharing/README.md) and enable GPU sharing and the `hamicore` plugin:
 
 ```bash
 helm install kai-scheduler oci://ghcr.io/kai-scheduler/kai-scheduler/kai-scheduler \
@@ -88,7 +88,7 @@ The default `monitor.nodeSelector` is `nvidia.com/gpu.present: "true"` (NVIDIA G
 `kai-vgpu-monitor` is a DaemonSet that reads the shared-memory cache `libvgpu.so` writes for each GPU container and exposes HAMi-compatible gauges: `hami_vgpu_memory_used_bytes`, `hami_vgpu_memory_limit_bytes`, `hami_container_device_utilization_ratio`, and more.
 
 ```bash
-curl <pod-ip>:9394/metrics
+curl <monitor-pod-ip>:9394/metrics
 ```
 
 ## Customization
