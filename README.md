@@ -98,7 +98,6 @@ Tune these Helm values for your environment:
 | Value | Default | Purpose |
 | --- | --- | --- |
 | `paths.containerVgpuMount` | `/usr/local/vgpu` | Mount path inside Pods; must match the DaemonSet install path and `ld.so.preload` |
-| `webhook.gpuShareResources` | `nvidia.com/gpu,nvidia.com/gpumem,nvidia.com/gpucores` | Extended-resource list passed to the webhook as `GPU_SHARE_RESOURCES`; injection is keyed off the `gpu-fraction`/`gpu-memory` annotations, not these resources |
 | `monitor.nodeSelector` | `nvidia.com/gpu.present: "true"` | Restricts the monitor DaemonSet to GPU nodes |
 | `monitor.runtimeClassName` | `""` | Set to `nvidia` if NVML needs the NVIDIA runtime handler |
 

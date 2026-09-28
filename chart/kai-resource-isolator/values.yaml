@@ -86,8 +86,6 @@ webhook:
   tolerations: []
   podLabels: {}
   podAnnotations: {}
-  ## Comma-separated extended resources that trigger injection (HAMi vGPU sharing)
-  gpuShareResources: "nvidia.com/gpu,nvidia.com/gpumem,nvidia.com/gpucores"
   failurePolicy: Ignore
 
 tls:
