@@ -11,9 +11,9 @@
 # worst case renders a PodDisruptionBudget with an EMPTY availability field:
 # the API server silently ACCEPTS that object, so a budget that constrains
 # nothing is stored as if it were a working budget. Neither failure mode is
-# visible to `helm lint` or to `kubectl apply --dry-run=server`, because both
-# accept an empty availability field, which is why this render level test is
-# needed.
+# visible to `helm lint` or to `kubectl apply --server-side --dry-run=server`,
+# because both accept an empty availability field, which is why this render
+# level test is needed.
 #
 # These cases are expected to FAIL until the fix for the null and out of range
 # podDisruptionBudget values lands. Run them against a fixed chart with
@@ -64,15 +64,29 @@ pdb_count() {
 
 # availability prints "minAvailable <value>" or "maxUnavailable <value>" for
 # every availability field of the rendered PodDisruptionBudget, one per line.
+# The value is normalised first, so a value that is valid but not lexically
+# bare is judged on the scalar the API server sees: a trailing YAML comment is
+# cut and surrounding double or single quotes are stripped.
 availability() {
 	awk '
+		BEGIN { sq = sprintf("%c", 39) }
 		/^---[[:space:]]*$/ { in_pdb = 0; next }
 		/^kind:[[:space:]]*PodDisruptionBudget[[:space:]]*$/ { in_pdb = 1; next }
 		in_pdb && /^[[:space:]]+(minAvailable|maxUnavailable):/ {
 			line = $0
 			sub(/^[[:space:]]+/, "", line)
 			sub(/:[[:space:]]*/, ": ", line)
-			print line
+			sub(/[[:space:]]+#.*$/, "", line)
+			key = line
+			sub(/:.*$/, "", key)
+			value = line
+			sub(/^[^:]*:[[:space:]]*/, "", value)
+			first = substr(value, 1, 1)
+			last = substr(value, length(value), 1)
+			if (length(value) >= 2 && (first == "\"" || first == sq) && first == last) {
+				value = substr(value, 2, length(value) - 2)
+			}
+			print key ": " value
 		}
 	' "$rendered"
 }
