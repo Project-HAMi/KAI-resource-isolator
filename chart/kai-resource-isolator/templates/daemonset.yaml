@@ -38,10 +38,16 @@ spec:
             - |
               set -e
               DST="/host-root{{ .Values.paths.containerVgpuMount }}"
-              mkdir -p "${DST}"
+              mkdir -p "${DST}/containers" /host-root/tmp/vgpulock
               cp -f /artifacts/libvgpu.so "${DST}/libvgpu.so"
               cp -f /config/ld.so.preload "${DST}/ld.so.preload"
               chmod 0644 "${DST}/libvgpu.so" "${DST}/ld.so.preload"
+              # Workload containers are often non-root; libvgpu must be able to
+              # create ${DST}/containers/${POD_UID}_${CONTAINER_NAME} itself,
+              # otherwise it logs "Fail to create synthesized container dir ...
+              # errno=13" and falls back to the container-local
+              # /tmp/cudevshr.cache, which kai-vgpu-monitor never sees.
+              chmod 1777 "${DST}/containers" /host-root/tmp/vgpulock
               echo "HAMi lib sync installed under ${DST}"
               exec sleep infinity
           securityContext:
