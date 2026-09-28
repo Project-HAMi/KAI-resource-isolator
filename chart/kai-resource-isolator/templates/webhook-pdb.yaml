@@ -2,8 +2,11 @@
 {{- if not (kindIs "map" $pdb) }}
 {{- $pdb = dict }}
 {{- end }}
-{{- $hasMaxUnavailable := and (hasKey $pdb "maxUnavailable") (not (kindIs "invalid" (get $pdb "maxUnavailable"))) }}
-{{- $hasMinAvailable := and (hasKey $pdb "minAvailable") (not (kindIs "invalid" (get $pdb "minAvailable"))) }}
+{{- $maxUnavailable := get $pdb "maxUnavailable" }}
+{{- $minAvailable := get $pdb "minAvailable" }}
+{{- $intOrPercent := "^-?[0-9]+%?$" }}
+{{- $hasMaxUnavailable := and (hasKey $pdb "maxUnavailable") (not (kindIs "invalid" $maxUnavailable)) (regexMatch $intOrPercent (toString $maxUnavailable)) }}
+{{- $hasMinAvailable := and (hasKey $pdb "minAvailable") (not (kindIs "invalid" $minAvailable)) (regexMatch $intOrPercent (toString $minAvailable)) }}
 {{- if gt (int .Values.webhook.replicaCount) 1 }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
@@ -15,9 +18,9 @@ metadata:
     {{- include "kai-resource-isolator.labels" . | nindent 4 }}
 spec:
   {{- if $hasMaxUnavailable }}
-  maxUnavailable: {{ get $pdb "maxUnavailable" }}
+  maxUnavailable: {{ $maxUnavailable }}
   {{- else if $hasMinAvailable }}
-  minAvailable: {{ get $pdb "minAvailable" }}
+  minAvailable: {{ $minAvailable }}
   {{- else }}
   minAvailable: 1
   {{- end }}
