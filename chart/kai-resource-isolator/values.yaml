@@ -67,7 +67,15 @@ monitor:
   legacyMetrics: false
 
 webhook:
+  ## Production installs should run at least 2 replicas together with
+  ## webhook.podDisruptionBudget so a node drain or chart upgrade never leaves
+  ## the admission webhook absent. With a single replica it would block all
+  ## voluntary node drains, so the PodDisruptionBudget and the pod anti-affinity
+  ## only render when replicaCount > 1.
   replicaCount: 1
+  podDisruptionBudget:
+    minAvailable: 1
+    # maxUnavailable: 1
   resources:
     requests:
       cpu: 10m

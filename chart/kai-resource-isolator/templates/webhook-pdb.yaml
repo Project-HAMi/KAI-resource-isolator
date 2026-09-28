@@ -1,0 +1,20 @@
+{{- if gt (int .Values.webhook.replicaCount) 1 }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "kai-resource-isolator.webhook.fullname" . }}
+  namespace: {{ include "kai-resource-isolator.namespace" . }}
+  labels:
+    app.kubernetes.io/component: kai-webhook
+    {{- include "kai-resource-isolator.labels" . | nindent 4 }}
+spec:
+  {{- if hasKey .Values.webhook.podDisruptionBudget "maxUnavailable" }}
+  maxUnavailable: {{ .Values.webhook.podDisruptionBudget.maxUnavailable }}
+  {{- else }}
+  minAvailable: {{ .Values.webhook.podDisruptionBudget.minAvailable }}
+  {{- end }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: kai-webhook
+      {{- include "kai-resource-isolator.selectorLabels" . | nindent 6 }}
+{{- end }}
