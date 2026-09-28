@@ -28,8 +28,15 @@ helm-template:
 	helm template kai-resource-isolator $(CHART) > /dev/null
 	helm template kai-resource-isolator $(CHART) --set monitor.enabled=true,monitor.serviceMonitor.enabled=true,tls.certManager.enabled=true,tls.patch.enabled=false > /dev/null
 
+## chart-test: assert the chart render invariants (webhook PodDisruptionBudget,
+## empty or out of range availability values fall back to minAvailable: 1);
+## needs helm on PATH
+.PHONY: chart-test
+chart-test:
+	hack/chart-tests.sh
+
 ## verify: run the tests and the chart checks; lint is a separate target because
 ## it needs golangci-lint on PATH, which CI does not install (as in HAMi, where
 ## verify and lint are separate)
 .PHONY: verify
-verify: test helm-lint helm-template
+verify: test helm-lint helm-template chart-test
