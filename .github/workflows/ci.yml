@@ -33,3 +33,39 @@ jobs:
           file: docker/Dockerfile
           platforms: linux/amd64
           push: false
+
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Run unit tests
+        run: make test
+
+  helm:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Lint chart
+        run: make helm-lint
+
+      - name: Render chart with defaults
+        run: helm template kai-resource-isolator chart/kai-resource-isolator > /dev/null
+
+      - name: Render chart with optional values
+        run: helm template kai-resource-isolator chart/kai-resource-isolator --set monitor.enabled=true,monitor.serviceMonitor.enabled=true,tls.certManager.enabled=true,tls.patch.enabled=false > /dev/null
