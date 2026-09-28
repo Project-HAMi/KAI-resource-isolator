@@ -68,11 +68,19 @@ monitor:
 
 webhook:
   ## Production installs should run at least 2 replicas together with
-  ## webhook.podDisruptionBudget so a node drain or chart upgrade never leaves
-  ## the admission webhook absent. With a single replica it would block all
-  ## voluntary node drains, so the PodDisruptionBudget and the pod anti-affinity
-  ## only render when replicaCount > 1.
+  ## webhook.podDisruptionBudget so a voluntary disruption such as a node
+  ## drain or an eviction never takes the last webhook pod away. With a
+  ## single replica the PodDisruptionBudget would block all voluntary node
+  ## drains, so the PodDisruptionBudget and the pod anti-affinity only render
+  ## when replicaCount > 1. Chart upgrades are not what the extra replica and
+  ## the PodDisruptionBudget are for: the default RollingUpdate strategy
+  ## (maxUnavailable 0, maxSurge 1) starts the replacement pod before the old
+  ## one is removed, at any replicaCount, as long as the new pod becomes
+  ## ready.
   replicaCount: 1
+  ## Precedence when replicaCount > 1: maxUnavailable, then minAvailable, then
+  ## the chart default of 1. An unset, null or empty podDisruptionBudget falls
+  ## back to minAvailable: 1 instead of failing to render.
   podDisruptionBudget:
     minAvailable: 1
     # maxUnavailable: 1

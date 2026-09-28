@@ -1,3 +1,9 @@
+{{- $pdb := .Values.webhook.podDisruptionBudget | default dict }}
+{{- if not (kindIs "map" $pdb) }}
+{{- $pdb = dict }}
+{{- end }}
+{{- $hasMaxUnavailable := and (hasKey $pdb "maxUnavailable") (not (kindIs "invalid" (get $pdb "maxUnavailable"))) }}
+{{- $hasMinAvailable := and (hasKey $pdb "minAvailable") (not (kindIs "invalid" (get $pdb "minAvailable"))) }}
 {{- if gt (int .Values.webhook.replicaCount) 1 }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
@@ -8,10 +14,12 @@ metadata:
     app.kubernetes.io/component: kai-webhook
     {{- include "kai-resource-isolator.labels" . | nindent 4 }}
 spec:
-  {{- if hasKey .Values.webhook.podDisruptionBudget "maxUnavailable" }}
-  maxUnavailable: {{ .Values.webhook.podDisruptionBudget.maxUnavailable }}
+  {{- if $hasMaxUnavailable }}
+  maxUnavailable: {{ get $pdb "maxUnavailable" }}
+  {{- else if $hasMinAvailable }}
+  minAvailable: {{ get $pdb "minAvailable" }}
   {{- else }}
-  minAvailable: {{ .Values.webhook.podDisruptionBudget.minAvailable }}
+  minAvailable: 1
   {{- end }}
   selector:
     matchLabels:
