@@ -30,7 +30,7 @@ helm-template:
 
 ## verify: run the tests and the chart checks; lint is a separate target because
 ## it needs golangci-lint on PATH, so make verify still works without it; the CI
-## test and helm jobs run the same targets, and the Lint workflow runs
+## test and helm jobs cover the same ground, and the Lint workflow runs
 ## golangci-lint
 .PHONY: verify
 verify: test helm-lint helm-template
