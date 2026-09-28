@@ -82,10 +82,10 @@ webhook:
   replicaCount: 1
   ## Precedence when replicaCount > 1: maxUnavailable, then minAvailable, then
   ## the chart default of 1. An availability value is only used when it is a
-  ## non-negative integer or a percentage, so an unset, null, empty, negative
-  ## or otherwise unusable podDisruptionBudget falls back to minAvailable: 1
-  ## instead of failing to render or producing an object the API server
-  ## rejects. Numeric 0 is valid. The API server still range-checks the value.
+  ## non-negative integer, or a percentage from 0 to 100, so an unset, null,
+  ## empty, negative, out of range or otherwise unusable podDisruptionBudget
+  ## falls back to minAvailable: 1 instead of failing to render or producing an
+  ## object the API server rejects. Numeric 0 is valid.
   podDisruptionBudget:
     minAvailable: 1
     # maxUnavailable: 1

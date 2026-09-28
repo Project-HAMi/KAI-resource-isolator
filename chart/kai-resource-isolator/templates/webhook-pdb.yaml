@@ -4,7 +4,7 @@
 {{- end }}
 {{- $maxUnavailable := get $pdb "maxUnavailable" }}
 {{- $minAvailable := get $pdb "minAvailable" }}
-{{- $intOrPercent := "^[0-9]+%?$" }}
+{{- $intOrPercent := "^(100|[0-9]{1,2})%$|^[0-9]+$" }}
 {{- $hasMaxUnavailable := and (hasKey $pdb "maxUnavailable") (not (kindIs "invalid" $maxUnavailable)) (regexMatch $intOrPercent (toString $maxUnavailable)) }}
 {{- $hasMinAvailable := and (hasKey $pdb "minAvailable") (not (kindIs "invalid" $minAvailable)) (regexMatch $intOrPercent (toString $minAvailable)) }}
 {{- if gt (int .Values.webhook.replicaCount) 1 }}
