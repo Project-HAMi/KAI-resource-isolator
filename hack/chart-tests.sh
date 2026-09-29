@@ -66,7 +66,9 @@ pdb_count() {
 # every availability field of the rendered PodDisruptionBudget, one per line.
 # The value is normalised first, so a value that is valid but not lexically
 # bare is judged on the scalar the API server sees: a trailing YAML comment is
-# cut and surrounding double or single quotes are stripped.
+# cut, and surrounding quotes are stripped only from a percentage. A quoted
+# integer is kept quoted, because the API server stores it as a string and
+# rejects any string availability value that is not a percentage.
 availability() {
 	awk '
 		BEGIN { sq = sprintf("%c", 39) }
@@ -84,7 +86,10 @@ availability() {
 			first = substr(value, 1, 1)
 			last = substr(value, length(value), 1)
 			if (length(value) >= 2 && (first == "\"" || first == sq) && first == last) {
-				value = substr(value, 2, length(value) - 2)
+				inner = substr(value, 2, length(value) - 2)
+				if (inner ~ /%$/) {
+					value = inner
+				}
 			}
 			print key ": " value
 		}
