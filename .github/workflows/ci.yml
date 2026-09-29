@@ -69,3 +69,6 @@ jobs:
 
       - name: Render chart with optional values
         run: helm template kai-resource-isolator chart/kai-resource-isolator --set monitor.enabled=true,monitor.serviceMonitor.enabled=true,tls.certManager.enabled=true,tls.patch.enabled=false > /dev/null
+
+      - name: Chart render invariant tests
+        run: make chart-test
