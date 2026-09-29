@@ -91,7 +91,7 @@ availability() {
 	' "$rendered"
 }
 
-# valid_availability accepts a non-empty integer or a percentage in [0, 100].
+# valid_availability accepts a non-negative int32 or a percentage in [0, 100].
 valid_availability() {
 	[ -n "$1" ] || return 1
 	case "$1" in
@@ -106,6 +106,11 @@ valid_availability() {
 		case "$1" in
 		'' | *[!0-9]*) return 1 ;;
 		esac
+		# Kubernetes stores the integer arm of IntOrString in an int32.
+		digits="$1"
+		while [ "${digits#0}" != "$digits" ]; do digits="${digits#0}"; done
+		digits="${digits:-0}"
+		[ "${#digits}" -le 10 ] && [ "$digits" -le 2147483647 ] || return 1
 		;;
 	esac
 	return 0
@@ -184,10 +189,28 @@ check_invariants() {
 	key="${fields%%:*}"
 	value="${fields#*: }"
 	if ! valid_availability "$value"; then
-		fail "$name" "$key is '${value}', expected a non-negative integer or a percentage in [0, 100]"
+		fail "$name" "$key is '${value}', expected a non-negative int32 or a percentage in [0, 100]"
 		return
 	fi
 	pass "$name"
+}
+
+# check_fallback asserts an invalid value renders the safe chart default.
+check_fallback() {
+	name="$1"
+	shift
+	render --set webhook.replicaCount=2 "$@"
+	if [ "$render_status" -ne 0 ]; then
+		fail "$name" "helm template exited $render_status"
+		render_error
+		return
+	fi
+	fields="$(availability)"
+	if [ "$(pdb_count)" -eq 1 ] && [ "$fields" = "minAvailable: 1" ]; then
+		pass "$name"
+	else
+		fail "$name" "availability field is '${fields:-<none>}', expected 'minAvailable: 1'"
+	fi
 }
 
 # check_renders_only asserts the chart still renders for the value sets CI
@@ -223,6 +246,10 @@ check_invariants 'podDisruptionBudget.maxUnavailable=0' --set-string webhook.pod
 check_invariants 'podDisruptionBudget.maxUnavailable=1' --set-string webhook.podDisruptionBudget.maxUnavailable=1
 check_invariants 'podDisruptionBudget.maxUnavailable=50%' --set-string webhook.podDisruptionBudget.maxUnavailable=50%
 check_invariants 'podDisruptionBudget.maxUnavailable=100%' --set-string webhook.podDisruptionBudget.maxUnavailable=100%
+check_invariants 'podDisruptionBudget.maxUnavailable=2147483647' --set-string webhook.podDisruptionBudget.maxUnavailable=2147483647
+check_fallback 'podDisruptionBudget.maxUnavailable=2147483648 falls back' --set-string webhook.podDisruptionBudget.maxUnavailable=2147483648
+check_fallback 'podDisruptionBudget.minAvailable=2147483648 falls back' --set-string webhook.podDisruptionBudget.minAvailable=2147483648
+check_fallback 'podDisruptionBudget.maxUnavailable=999999999999999999999 falls back' --set-string webhook.podDisruptionBudget.maxUnavailable=999999999999999999999
 check_invariants 'podDisruptionBudget.minAvailable=0' --set-string webhook.podDisruptionBudget.minAvailable=0
 check_invariants 'podDisruptionBudget.minAvailable=2' --set-string webhook.podDisruptionBudget.minAvailable=2
 check_invariants 'podDisruptionBudget={}' --set-json 'webhook.podDisruptionBudget={}'
