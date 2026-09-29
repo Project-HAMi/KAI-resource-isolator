@@ -4,9 +4,16 @@
 {{- end }}
 {{- $maxUnavailable := get $pdb "maxUnavailable" }}
 {{- $minAvailable := get $pdb "minAvailable" }}
-{{- $intOrPercent := "^(100|[0-9]{1,2})%$|^[0-9]+$" }}
-{{- $hasMaxUnavailable := and (hasKey $pdb "maxUnavailable") (not (kindIs "invalid" $maxUnavailable)) (regexMatch $intOrPercent (toString $maxUnavailable)) }}
-{{- $hasMinAvailable := and (hasKey $pdb "minAvailable") (not (kindIs "invalid" $minAvailable)) (regexMatch $intOrPercent (toString $minAvailable)) }}
+{{- $percent := "^(100|[0-9]{1,2})%$" }}
+{{- $integer := "^[0-9]+$" }}
+{{- $maxText := toString $maxUnavailable }}
+{{- $minText := toString $minAvailable }}
+{{- $maxDigits := default "0" (regexReplaceAll "^0+" $maxText "") }}
+{{- $minDigits := default "0" (regexReplaceAll "^0+" $minText "") }}
+{{- $maxInteger := and (regexMatch $integer $maxText) (le (len $maxDigits) 10) (le (atoi $maxDigits) 2147483647) }}
+{{- $minInteger := and (regexMatch $integer $minText) (le (len $minDigits) 10) (le (atoi $minDigits) 2147483647) }}
+{{- $hasMaxUnavailable := and (hasKey $pdb "maxUnavailable") (or (regexMatch $percent $maxText) $maxInteger) }}
+{{- $hasMinAvailable := and (hasKey $pdb "minAvailable") (or (regexMatch $percent $minText) $minInteger) }}
 {{- if gt (int .Values.webhook.replicaCount) 1 }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
@@ -18,9 +25,9 @@ metadata:
     {{- include "kai-resource-isolator.labels" . | nindent 4 }}
 spec:
   {{- if $hasMaxUnavailable }}
-  maxUnavailable: {{ $maxUnavailable }}
+  maxUnavailable: {{ if $maxInteger }}{{ $maxDigits }}{{ else }}{{ $maxUnavailable }}{{ end }}
   {{- else if $hasMinAvailable }}
-  minAvailable: {{ $minAvailable }}
+  minAvailable: {{ if $minInteger }}{{ $minDigits }}{{ else }}{{ $minAvailable }}{{ end }}
   {{- else }}
   minAvailable: 1
   {{- end }}
