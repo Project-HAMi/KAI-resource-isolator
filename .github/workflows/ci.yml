@@ -50,6 +50,9 @@ jobs:
       - name: Run unit tests
         run: make test
 
+      - name: Check kind smoke safety guards
+        run: bash hack/e2e/kind-smoke-safety-test.sh
+
   helm:
     runs-on: ubuntu-latest
     permissions:

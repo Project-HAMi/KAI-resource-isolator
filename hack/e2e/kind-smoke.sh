@@ -36,7 +36,8 @@
 # EXPECT_NONROOT_WRITE=0 to report it as XFAIL instead.
 #
 # The kind cluster is deleted when the script exits, unless KEEP_CLUSTER=1. A
-# cluster that already existed when the script started is never deleted.
+# cluster that already existed when the script started is never deleted. The
+# script refuses to upgrade an existing Helm release in a reused cluster.
 #
 # Environment knobs:
 #   KIND_CLUSTER          kind cluster name (default: kri-smoke)
@@ -45,7 +46,7 @@
 #                         (default: build kai-resource-isolator:e2e from
 #                         hack/e2e/Dockerfile)
 #   CHART_DIR             chart path (default: <repo>/chart/kai-resource-isolator)
-#   RELEASE               helm release name (default: kai-resource-isolator)
+#   RELEASE               unused helm release name (default: kai-resource-isolator)
 #   NAMESPACE             release namespace (default: kai-resource-isolator)
 #   HELM_EXTRA_ARGS       extra args appended to helm upgrade --install (word-split)
 #   TIMEOUT               kubectl/helm timeout (default: 180s)
@@ -67,10 +68,11 @@ TIMEOUT="${TIMEOUT:-180s}"
 EXPECT_NONROOT_WRITE="${EXPECT_NONROOT_WRITE:-1}"
 
 CTX="kind-${KIND_CLUSTER}"
-TEST_NS="${KIND_CLUSTER}-smoke"
+TEST_NS="kri-smoke-$(date +%s)-$$-${RANDOM}"
 TEST_POD_IMAGE="ubuntu:24.04"
 VGPU_MOUNT="/usr/local/vgpu"
 CREATED_CLUSTER=0
+TEST_NS_CREATED=0
 FAILED=0
 START_TS="$(date +%s)"
 RESULTS=()
@@ -107,6 +109,9 @@ cleanup() {
 		kc -n "${NAMESPACE}" logs "deploy/${RELEASE}-webhook" --tail=50 2>/dev/null || true
 		kc get pods -A 2>/dev/null || true
 	fi
+	if [[ "${TEST_NS_CREATED}" == "1" ]]; then
+		kc delete namespace "${TEST_NS}" --wait=false >/dev/null 2>&1 || true
+	fi
 	if [[ "${KEEP_CLUSTER}" == "1" ]]; then
 		log "KEEP_CLUSTER=1: leaving cluster ${KIND_CLUSTER} (context ${CTX})"
 	elif [[ "${CREATED_CLUSTER}" == "1" ]]; then
@@ -134,6 +139,19 @@ else
 	CREATED_CLUSTER=1
 fi
 NODE="$(kind get nodes --name "${KIND_CLUSTER}" | head -n1)"
+
+# Do not turn a smoke-test run into an upgrade of a release already on this
+# cluster. Run this before building or loading an image.
+helm_version="$(helm version --short)"
+case "${helm_version}" in
+	v3.*) existing_release="$(helm --kube-context "${CTX}" list --namespace "${NAMESPACE}" --all --short --filter "^${RELEASE}$")" ;;
+	v4.*) existing_release="$(helm --kube-context "${CTX}" list --namespace "${NAMESPACE}" --short --filter "^${RELEASE}$")" ;;
+	*) echo "unsupported Helm version: ${helm_version}" >&2; exit 1 ;;
+esac
+if [[ -n "${existing_release}" ]]; then
+	echo "release ${NAMESPACE}/${RELEASE} already exists in ${CTX}; choose a different RELEASE or cluster" >&2
+	exit 1
+fi
 
 # --- image -----------------------------------------------------------------
 if [[ -z "${IMAGE}" ]]; then
@@ -177,8 +195,8 @@ helm --kube-context "${CTX}" upgrade --install "${RELEASE}" "${CHART_DIR}" \
 kc -n "${NAMESPACE}" rollout status "deploy/${RELEASE}-webhook" --timeout "${TIMEOUT}"
 kc -n "${NAMESPACE}" rollout status "ds/${RELEASE}-libsync" --timeout "${TIMEOUT}"
 
-kc delete namespace "${TEST_NS}" --ignore-not-found --wait=true --timeout "${TIMEOUT}" >/dev/null
 kc create namespace "${TEST_NS}" >/dev/null
+TEST_NS_CREATED=1
 
 pod_manifest() {
 	# pod_manifest <name> <annotations block, already indented>
@@ -321,8 +339,6 @@ for p in plain optout; do
 		record PASS "d1 ${p} pod not mutated"
 	fi
 done
-
-kc delete namespace "${TEST_NS}" --wait=false >/dev/null 2>&1 || true
 
 # summary --------------------------------------------------------------------
 echo
